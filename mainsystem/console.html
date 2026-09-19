@@ -1,0 +1,705 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ShopSwarm • Operator Console</title>
+<style>
+:root{color-scheme:dark;font:15px system-ui;background:#0b1220;color:#e8eef8}body{max-width:1250px;margin:auto;padding:28px}h1{margin:0;font-size:32px}h2{font-size:18px}.muted{color:#a5b4ca}header{display:flex;justify-content:space-between;gap:20px;align-items:center}.banner{border:1px solid #f7b955;background:#33291d;color:#ffdc9f;padding:12px 16px;border-radius:10px;margin:22px 0}.grid{display:grid;grid-template-columns:1fr 1.3fr;gap:20px}.panel{background:#121e31;border:1px solid #2d405d;border-radius:12px;padding:20px;margin-bottom:16px}.agents{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0}.agent{padding:7px 12px;background:#22354d;border-radius:20px}.agent.active{background:#086d60}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}button,select,input{font:inherit;padding:9px 12px;border-radius:7px;border:1px solid #45617e;background:#1b2f49;color:white}button{cursor:pointer;background:#106c60}button.stop{background:#ae3645}button.secondary{background:#273a55}button:disabled{opacity:.5;cursor:default}.order{border-top:1px solid #334967;padding:14px 0}.pill{font-size:12px;color:#95d7cf}#events{height:540px;overflow:auto}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;color:#b4c9e3;margin:5px 0 12px}.event{padding:10px 0;border-bottom:1px solid #263b55}.time{font-size:12px;color:#8fa1b9}#error{color:#ffc3c3;min-height:24px}label{display:grid;gap:6px}@media(max-width:800px){.grid{grid-template-columns:1fr}header{align-items:flex-start}body{padding:16px}}.shop-layout{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(330px,1fr);gap:20px;align-items:start}.catalog-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.product{border:1px solid #334967;border-radius:10px;padding:15px;background:#17253b}.product h3{margin:0 0 5px;font-size:17px}.product p{margin:9px 0}.product input,.cart-line input{width:64px}.product .row{gap:7px}.product button{font-size:13px;padding:8px 9px}.stock-low{color:#ffd293}.action-error{color:#ffc3c3}.action-status{font-size:13px;min-height:18px}.cart-panel{position:sticky;top:16px}.cart-line{padding:13px 0;border-bottom:1px solid #334967}.cart-line strong{display:block;margin-bottom:7px}.cart-total{font-size:24px;font-weight:700;margin:16px 0}.cart-budget{width:100px}.compatibility{color:#ffd293}.catalog-heading{justify-content:space-between;margin-bottom:16px}summary{cursor:pointer;font-weight:600}details>div{margin-top:16px}.cart-issues{padding-left:20px;color:#ffd293}#cart-approve{width:100%;margin:10px 0}#restock-requests{font-size:13px}.legacy-title{margin-top:30px}.row.small{margin-top:10px}@media(max-width:950px){.shop-layout{grid-template-columns:1fr}.cart-panel{position:static}}@media(max-width:520px){.catalog-grid{grid-template-columns:1fr}.product .row{align-items:flex-end}}
+.sustainability{border-color:#366a5c;background:linear-gradient(135deg,#142a2d,#121e31 70%)}.sustainability h2{font-size:24px;margin:4px 0 8px}.eyebrow{color:#a4dbc3;font-size:12px;letter-spacing:.1em;text-transform:uppercase}.zone-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:18px 0}.zone-card{padding:16px;border:1px solid #3b5958;border-radius:10px;background:#11212d;min-width:0}.zone-card h3{margin:0 0 6px}.zone-card p{font-size:13px;line-height:1.45}.zone-state{font-size:12px;color:#ffd293}.metric{margin:12px 0;padding-top:10px;border-top:1px solid #2a434e}.metric strong{font-size:14px}.metric small{display:block;color:#aec0cd;font-size:12px;line-height:1.6}.sustain-layout{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:18px}.review-item,.batch-row,.plan-row{border-top:1px solid #36505d;padding:12px 0;font-size:13px;line-height:1.6}.review-item strong,.batch-row strong,.plan-row strong{display:block}.sustain-details{border-top:1px solid #36505d;margin-top:18px;padding-top:16px}.sustain-form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:end}.sustain-form input,.sustain-form select{box-sizing:border-box;width:100%;min-width:0}.sustain-form label{font-size:13px}.sustain-form .form-wide{grid-column:1/-1}.sustain-form .check-label{display:flex;align-items:center}.sustain-form input[type=checkbox]{width:auto}.outcome-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.outcome-stat{padding:12px;background:#162b37;border-radius:7px}.outcome-stat strong{display:block;font-size:20px}.outcome-stat span{color:#a5b4ca;font-size:12px}.sustain-hint{font-size:12px;line-height:1.5;color:#b7c7d6}.sustainability .action-status{margin-bottom:0}.sustainability button{white-space:normal}.trend{font-variant-numeric:tabular-nums;color:#abcac7}.provenance{color:#a4dbc3}.sustainability details[open]>summary{margin-bottom:16px}@media(max-width:950px){.zone-grid{grid-template-columns:1fr}.sustain-layout{grid-template-columns:1fr}}@media(max-width:650px){.sustain-form{grid-template-columns:1fr 1fr}.outcome-stats{grid-template-columns:1fr}.sustainability .catalog-heading{align-items:flex-start}}@media(max-width:420px){.sustain-form{grid-template-columns:1fr}}
+.visual-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0 24px}.summary-tile{padding:16px 18px;background:#162936;border:1px solid #304853;border-radius:12px}.summary-tile .stat-number{display:block;font-size:30px;letter-spacing:-.04em;font-weight:700;margin:6px 0}.summary-tile .stat-caption{color:#a7bbca;font-size:12px}.summary-tile .stat-label{font-size:12px;color:#bcd1db}.summary-tile.tone-amber .stat-number{color:#ffce80}.summary-tile.tone-teal .stat-number{color:#65dfbf}.summary-tile.tone-blue .stat-number{color:#8cbefa}.zone-card{display:flex;flex-direction:column;gap:8px;padding:18px;background:linear-gradient(155deg,#152b35,#101e2e)}.zone-heading{display:flex;gap:10px;align-items:center}.zone-symbol{display:grid;place-items:center;width:34px;height:34px;border:1px solid #395960;border-radius:10px;color:#73dec1;font-size:20px}.zone-card h3{font-size:17px;margin:0}.zone-card>p{margin:3px 0}.zone-card .zone-state{line-height:1.4;font-size:11px;color:#b4c3ce}.zone-select{margin-top:5px;width:100%;max-width:100%;font-size:12px;padding:7px 9px;background:#132532;border-color:#34515e}.reading-value{font-size:34px;letter-spacing:-.04em;font-weight:700;line-height:1.3}.reading-value small{font-size:14px;margin-left:6px;font-weight:400;color:#a8bbc9;letter-spacing:0}.reading-note{font-size:11px;color:#ffc980;min-height:16px}.chart-host{min-width:0}.chart-host svg{display:block;width:100%;height:auto;overflow:visible}.zone-chips{display:flex;gap:7px;flex-wrap:wrap;font-size:11px;color:#b5cbd7}.zone-chips span{padding:5px 8px;border:1px solid #2a4350;border-radius:6px}.zone-details{font-size:12px;margin-top:auto;border-top:1px solid #2c4550;padding-top:12px}.zone-details summary{color:#afc8ce;font-weight:500}.zone-details .metric:first-child{border-top:0;padding-top:0}.visual-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:16px;margin:20px 0}.visual-card{min-width:0;background:#101f2d;border:1px solid #304c56;border-radius:12px;padding:20px}.visual-card h3{margin:0;font-size:16px}.visual-card .chart-heading{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:16px}.chart-heading select{font-size:12px;padding:6px 8px;max-width:170px}.visual-muted{color:#a8bdcd;font-size:12px;line-height:1.5}.date-axis{display:grid;grid-template-columns:150px 1fr 72px;gap:12px;margin:18px 0 8px;font-size:10px;color:#86a1b2}.date-axis>div:nth-child(2){display:flex;justify-content:space-between}.date-row{display:grid;grid-template-columns:150px 1fr 72px;gap:12px;align-items:center;padding:12px 0;border-top:1px solid #233b48}.date-label strong{display:block;font-size:12px;line-height:1.35}.date-label small{font-size:10px;color:#a2b4c4;display:block;margin-top:4px}.date-track{height:20px;position:relative;background:repeating-linear-gradient(90deg,transparent 0,transparent calc(25% - 1px),#29414e calc(25% - 1px),#29414e 25%);border-bottom:1px solid #365263}.date-fill{height:3px;position:absolute;top:9px;background:#568691;max-width:100%}.date-dot{position:absolute;top:4px;width:12px;height:12px;border-radius:50%;transform:translateX(-50%);background:#6bdac0;box-shadow:0 0 0 4px #6bdac018}.date-dot.held{background:#ffc571;box-shadow:0 0 0 4px #ffc57118}.date-dot.excluded{background:#a8a9bd;box-shadow:0 0 0 4px #a8a9bd18}.date-count{text-align:right;font-size:13px}.date-count small{display:block;font-size:10px;color:#a1b5c5;margin-top:3px}.date-row.historical{opacity:.65}.chart-empty{padding:24px 12px;text-align:center;border:1px dashed #375361;border-radius:9px;color:#a1b9c7;font-size:13px;line-height:1.7}.chart-legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:14px;font-size:11px;color:#b0c6d0}.legend-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;background:#6bdac0}.legend-dot.amber{background:#ffc571}.legend-dot.gray{background:#a8a9bd}.refill-total{display:flex;justify-content:space-between;align-items:center;margin-top:18px;padding-top:16px;border-top:1px solid #2d4552}.refill-total strong{font-size:24px;color:#8fc8fa}.scope-note{font-size:11px;color:#92aeba;margin-bottom:12px}.data-disclosure{font-size:12px;margin:10px 0;color:#a8c8cd}.data-disclosure>p{max-width:900px}.sustain-layout{display:block}.review-item{display:grid;grid-template-columns:minmax(140px,.55fr) 1fr;gap:12px;padding:10px 0}.review-item strong{font-size:12px}.review-item>div{font-size:12px;color:#b7c9d4}.review-item.inspection{border-left:3px solid #d5a15a;padding-left:10px}.sustainability h2{font-size:26px}.sustainability>.row{margin-bottom:8px}.sustain-hint{font-size:11px}.details-caption{font-size:12px;font-weight:400;color:#95aaba;margin-left:8px}.section-spacer{margin-top:24px}.stock-meter{height:5px;border-radius:5px;background:#263b50;overflow:hidden;margin:9px 0}.stock-meter>span{display:block;height:100%;background:#58cdb4}.product{padding:14px}.product .muted{font-size:12px}.product>p{font-size:13px}.product h3{font-size:16px}.diagnostic-panel summary{font-size:16px}.metric-list{display:grid;gap:4px}.metric-list .metric{margin:5px 0}.visual-card .outcome-stats{grid-template-columns:1fr}.secondary-impact{margin-top:16px}.secondary-impact summary{font-size:11px;color:#9db6c6}#sustain-impact .bar-chart{margin-top:8px}.sustainability .action-status:empty{display:none}@media(max-width:1050px){.zone-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.date-row,.date-axis{grid-template-columns:120px 1fr 58px;gap:8px}.visual-card{padding:15px}}@media(max-width:850px){.zone-grid{grid-template-columns:1fr}.visual-grid{grid-template-columns:1fr}.visual-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.reading-value{font-size:30px}.zone-card .chart-host svg{max-height:190px}.zone-card{gap:6px}.review-item{grid-template-columns:1fr;gap:2px}}@media(max-width:460px){body{padding:12px}.panel{padding:15px}.summary-tile{padding:12px}.summary-tile .stat-number{font-size:25px}.date-row,.date-axis{grid-template-columns:100px 1fr 52px;gap:7px}.chart-heading{align-items:flex-start!important;flex-wrap:wrap}.sustainability h2{font-size:22px}}
+.chart-caption{display:flex;gap:6px 12px;flex-wrap:wrap;color:#8eaab9;font-size:10px;line-height:1.45;margin:4px 0 2px}.chart-caption .chart-historical{color:#ddb97e}.chart-threshold-label{color:#dab36e}.bar-row{margin:14px 0}.bar-heading{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;gap:10px;margin-bottom:7px}.bar-heading>span{color:#b4c9d6}.bar-heading>strong{font-size:13px}.bar-note{display:block;color:#98b3c1;font-size:10px;margin-top:5px}.bar-scale{font-size:10px;margin-top:12px}.chart-source{color:#87cdbb}.trend-chart .chart-empty{min-height:90px;display:grid;place-items:center}
+body{padding-top:20px}header h1{font-size:28px}.banner{margin:14px 0;padding:10px 14px;font-size:13px}.agents{margin:12px 0}.agent{font-size:12px;padding:5px 10px}.visual-summary{gap:10px;margin:14px 0 18px}.summary-tile{padding:11px 14px}.summary-tile .stat-number{font-size:27px;margin:2px 0}.summary-tile .stat-label,.summary-tile .stat-caption{font-size:11px}.sustainability h2{font-size:24px}.zone-card .chart-caption .chart-historical{display:none}.plan-visual{max-width:480px;margin:12px 0}.plan-visual .bar-row{margin:8px 0}.plan-visual .bar-heading{font-size:11px}
+.mel-panel{border-color:#70649a;background:linear-gradient(120deg,#26233c,#151f33 70%)}.mel-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(240px,.48fr);gap:24px}.mel-panel h2{font-size:26px;margin:0 0 8px}.mel-panel textarea{font:inherit;box-sizing:border-box;width:100%;resize:vertical;min-height:76px;padding:12px;border:1px solid #697197;border-radius:8px;color:#fff;background:#111d31}.mel-panel .examples{margin:10px 0}.mel-panel .examples button{background:#2d304b;font-size:12px;padding:6px 9px}.mel-panel #mel-ask{background:#7662ad}.mel-modes{font-size:12px;color:#c8c1e2;margin:8px 0 16px}.mel-response{padding:12px 0;border-top:1px solid #424461}.mel-response .mel-answer{white-space:pre-wrap;line-height:1.55;margin:8px 0}.mel-response .mel-question{font-size:13px;color:#b6c5d9}.mel-voice{border-left:1px solid #424461;padding-left:22px}.mel-voice h3{margin-top:0}.mel-panel details{margin-top:14px}.proposal-card{padding:14px 0;border-top:1px solid #424461}.proposal-facts{display:grid;grid-template-columns:minmax(110px,.5fr) minmax(0,1fr);gap:5px 14px;font-size:13px;margin:10px 0}.proposal-facts dt{color:#b6c5d9}.proposal-facts dd{margin:0;overflow-wrap:anywhere}.mel-activity{font-size:12px;color:#aebbd2;line-height:1.7}.filter-summary{color:#d3d9e8;font-size:13px}.filter-facts{font-size:12px;line-height:1.55}.filter-facts p{font-size:12px}@media(max-width:800px){.mel-layout{grid-template-columns:1fr;gap:16px}.mel-voice{border-left:0;border-top:1px solid #424461;padding:16px 0 0}}
+.demo-banner{border-color:#386f68;background:linear-gradient(110deg,#163c37,#20293f);display:flex;align-items:center;gap:14px;flex-wrap:wrap}.demo-banner strong{color:#95efcd;letter-spacing:.08em;font-size:12px}.demo-banner span{font-size:12px;color:#c7d9e8}.robot-panel{display:grid;grid-template-columns:minmax(220px,.8fr) minmax(0,1.2fr);gap:24px;align-items:center;background:linear-gradient(115deg,#162c36,#121e31);border-color:#335b65;overflow:hidden}.robot-panel h2{font-size:20px;margin:6px 0}.robot-panel p{margin:8px 0;font-size:12px;line-height:1.6}.robot-label{font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:#82dfc2}.robot-result{color:#b9d5df}.robot-scene{min-width:0;position:relative}.robot-scene svg{display:block;width:100%;max-height:155px}.robot-scene text{font:10px system-ui;fill:#98b6c8;letter-spacing:.08em}.robot-road{stroke-dasharray:4 8}.robot-carrier{transform:translateX(0);transition:transform .5s ease}.robot-scan{opacity:0;transform-origin:370px 72px}.robot-panel[data-state=running] .robot-carrier{animation:robot-travel 1.5s ease-in-out forwards}.robot-panel[data-state=running] .robot-scan{animation:robot-scan 1.5s ease-in-out 1.4s infinite}.robot-panel[data-state=completed] .robot-carrier{transform:translateX(248px)}.robot-panel[data-state=completed] .robot-check{opacity:1}.robot-check{opacity:0}.robot-panel[data-state=failed] .robot-led,.robot-panel[data-state=paused] .robot-led{fill:#ffbf7a}.robot-panel[data-state=offline] .robot-carrier{opacity:.5}.robot-status{color:#c6e7e4}.robot-footnote{font-size:10px!important;color:#8dabbc}.filter-overview{border-top:1px solid #2c4550;padding-top:12px;margin-top:6px}.filter-overview h4{margin:0 0 6px;font-size:13px}.filter-overview .filter-summary{margin:5px 0;font-size:12px}.filter-progress{display:grid;gap:9px;margin:10px 0}.filter-progress label{font-size:10px;gap:4px;color:#adc4d2}.filter-progress progress{width:100%;height:6px;accent-color:#65dfbf;border:0;border-radius:5px;overflow:hidden;background:#2a4050}.filter-progress progress::-webkit-progress-bar{background:#2a4050}.filter-progress progress::-webkit-progress-value{background:#65dfbf}.filter-progress .limit-due progress{accent-color:#ffbd73}.filter-progress .limit-due progress::-webkit-progress-value{background:#ffbd73}@keyframes robot-travel{0%{transform:translateX(0)}100%{transform:translateX(248px)}}@keyframes robot-scan{0%,100%{opacity:.15}50%{opacity:.7}}@media(prefers-reduced-motion:reduce){.robot-carrier{transition:none!important;animation:none!important}.robot-panel[data-state=running] .robot-carrier{transform:translateX(248px)}.robot-panel[data-state=running] .robot-scan{animation:none;opacity:.3}}@media(max-width:700px){.robot-panel{grid-template-columns:1fr;gap:4px}.robot-panel .robot-scene{max-width:540px}.robot-panel h2{font-size:18px}}
+.robot-panel[hidden]{display:none}.robot-panel[data-state=inspecting] .robot-carrier,.robot-panel[data-state=waiting] .robot-carrier{transform:translateX(248px)}.robot-panel[data-state=inspecting] .robot-scan{animation:robot-scan 1.5s ease-in-out infinite}@media(prefers-reduced-motion:reduce){.robot-panel[data-state=inspecting] .robot-scan{animation:none;opacity:.3}}
+</style></head>
+<body><header><div><h1>ShopSwarm</h1><div class="muted">Physical evidence. Coordinated agents. Verified fulfillment.</div></div><button class="stop" id="stop">Emergency stop</button></header>
+<div class="banner" id="mode">Connecting…</div><div class="agents" id="agents"></div>
+<section class="panel robot-panel" id="robot-panel" aria-label="Simulated robot inventory check" hidden><div><div class="robot-label">Demo robot · Inventory mission</div><h2 id="robot-heading">Ready to check the shelves</h2><p id="robot-status" class="robot-status" role="status" aria-live="polite">Ask Mel or check a product to send a simulated stock inspection.</p><p id="robot-result" class="robot-result"></p><p class="robot-footnote">Animated illustration of the simulated job. Completion follows the returned evidence.</p></div><div class="robot-scene" aria-hidden="true"><svg viewBox="0 0 520 145" focusable="false"><defs><linearGradient id="robot-beam"><stop stop-color="#68dfc0" stop-opacity=".03"/><stop offset="1" stop-color="#68dfc0" stop-opacity=".5"/></linearGradient></defs><path d="M30 110H483" stroke="#33596b" stroke-width="2"/><path class="robot-road" d="M87 120H333" stroke="#5b8b97"/><rect x="12" y="45" width="56" height="62" rx="9" fill="#1b3442" stroke="#406877"/><path d="M34 62H48L37 80H49L32 98L36 82H26Z" fill="#79c9b3"/><text x="13" y="139">DOCK</text><g fill="#213c49" stroke="#4b7080"><rect x="376" y="23" width="111" height="86" rx="6"/><path d="M376 65H487M376 102H487"/></g><g fill="#afaa7c"><rect x="386" y="39" width="20" height="25" rx="3"/><rect x="412" y="35" width="21" height="29" rx="3"/><rect x="439" y="43" width="16" height="21" rx="3"/></g><g fill="#69b49e"><rect x="386" y="79" width="26" height="22" rx="3"/><rect x="418" y="75" width="21" height="26" rx="3"/><rect x="445" y="78" width="28" height="23" rx="3"/></g><text x="386" y="139">STOCK BAYS</text><path class="robot-scan" d="M354 75L480 30V108Z" fill="url(#robot-beam)"/><g class="robot-carrier"><path d="M83 74V57H103" stroke="#79c5cc" stroke-width="3" fill="none"/><circle class="robot-led" cx="104" cy="57" r="4" fill="#87ebbd"/><rect x="75" y="70" width="43" height="31" rx="9" fill="#b4d7de"/><rect x="90" y="77" width="28" height="12" rx="5" fill="#1d3e50"/><circle cx="107" cy="83" r="3" fill="#81f2d7"/><rect x="67" y="94" width="59" height="11" rx="5" fill="#5d92a6"/><circle cx="79" cy="106" r="7" fill="#0a1825" stroke="#79b1c3" stroke-width="2"/><circle cx="114" cy="106" r="7" fill="#0a1825" stroke="#79b1c3" stroke-width="2"/></g><g class="robot-check"><circle cx="487" cy="23" r="13" fill="#65dfbf"/><path d="M481 23L485 27L493 18" fill="none" stroke="#153c38" stroke-width="2"/></g></svg></div></section>
+<section class="panel mel-panel" aria-label="Ask Mel"><div class="mel-layout"><div><h2>Ask Mel</h2><p class="muted">Ask about stock, food waste or your water station.</p><div id="mel-readiness" role="status">Checking Mel connection…</div><div id="mel-modes" class="mel-modes"></div><label for="mel-request">Your request<textarea id="mel-request" maxlength="4000" rows="2" placeholder="How much coffee is left?"></textarea></label><div class="row examples"><button type="button" id="mel-example-coffee" class="secondary">Coffee stock</button><button type="button" id="mel-example-spoilage" class="secondary">Spoilage review</button><button type="button" id="mel-example-filter" class="secondary">Filter replacement</button></div><div class="row"><button id="mel-ask" disabled>Ask Mel</button><span id="mel-submit-status" class="action-status" role="status"></span></div></div><div class="mel-voice"><h3>Speak with ElevenLabs</h3><p id="voice-status" role="status">Checking ElevenLabs configuration…</p><div class="row"><button id="voice-start" disabled>Start voice</button><button id="voice-stop" class="secondary" disabled>Stop voice</button></div><p id="voice-routing" class="sustain-hint"></p><p class="sustain-hint">Voice uses this laptop's microphone and speakers and ElevenLabs credits. With speakers, wait for playback to finish before speaking. Stop voice interrupts.</p></div></div><div id="mel-responses" aria-live="polite"></div><details><summary>Mel tool activity</summary><div id="mel-activity" class="mel-activity"></div></details><details id="proposal-review"><summary id="proposal-summary">Operator proposals for review</summary><p class="sustain-hint">Review the exact facts before applying a proposed record. A proposal has not changed inventory or recorded an outcome.</p><div id="proposal-list"></div></details></section>
+
+<section class="panel sustainability" id="sustainability-panel" aria-label="Sustainability console"></section>
+<div class="shop-layout"><section class="panel"><div class="row catalog-heading"><div><h2>Products & stock</h2><div class="muted">Check observations, request restock, and build a cart.</div></div><button id="check-all-stock" class="secondary" disabled>Check all stock</button></div><p id="workflow-compatibility" class="compatibility" role="status"></p><p id="stock-global-status" class="action-status" role="status"></p><div id="catalog-grid" class="catalog-grid">Loading products…</div><details><summary>Restock requests</summary><div id="restock-requests">No restock requests.</div></details></section>
+<aside class="panel cart-panel"><h2>Shopping cart</h2><p id="cart-status" class="pill">Loading cart…</p><div id="cart-lines">Your cart is empty.</div><div id="cart-total" class="cart-total">Total $0.00</div><div class="row"><label>Cart budget in dollars<input id="cart-budget" class="cart-budget" type="number" min="0.01" max="10000" step="0.01" value="50"></label><button id="cart-budget-save" class="secondary" disabled>Save budget</button></div><ul id="cart-issues" class="cart-issues"></ul><p id="cart-approval-hint" class="muted"></p><button id="cart-approve" disabled hidden>Approve checkout & fulfill</button><div class="row"><button id="cart-check" disabled>Check cart stock</button><button id="cart-clear" class="secondary" disabled>Clear cart</button></div><p id="cart-message" class="action-status" role="status"></p><p class="muted">Stock checks expire after 30 seconds. Editing the cart requires another check and a new human approval. All money is a test ledger.</p></aside></div>
+<div class="grid"><div><section class="panel"><h2>Single-item request</h2><div class="row"><label>Product<select id="sku"></select></label><label>Budget in dollars<input id="budget" type="number" min="0.01" step="0.01" value="15" style="width:110px"></label></div><p><button id="prepare">Ask the agent team</button></p><p class="muted">The ElevenLabs voice client can submit the same requests. Approve the exact order here before delivery.</p><div id="error" role="status"></div></section>
+<details class="panel" id="sim"><summary>Simulation fixture controls</summary><div><p class="muted">Change a selected product bay while recorded stock stays unchanged. Use product Restock to add a quantity.</p><div class="row"><label>Product<select id="sim-sku"></select></label><button class="secondary" id="sim-place">Place one item</button><button class="secondary" id="sim-remove">Empty this bay</button></div></div></details>
+<section class="panel"><h2>Orders & human approval</h2><div id="orders">No orders yet.</div></section><details class="panel diagnostic-panel"><summary>Raw shelf telemetry</summary><pre id="sensors">No external sensor connected.</pre></details></div>
+<details class="panel diagnostic-panel"><summary>Agent activity & evidence <span class="details-caption">Open detailed records</span></summary><p class="muted">Separate conversations, peer task requests, tool results, and reconciliation events. Model private reasoning is never displayed.</p><div id="events"></div></details></div>
+<script>
+const token='__LOCAL_TOKEN__';const $=s=>document.querySelector(s);let busy=false;let lastOrders=null;let voiceBusy=false;let latestState=null;
+const orderActions=new Map();let seenFailedJobs=null;
+async function post(path,data={}){const abort=new AbortController();const timer=setTimeout(()=>abort.abort(),15000);try{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-ShopSwarm-Token':token},body:JSON.stringify(data),signal:abort.signal});const body=await r.json();if(!r.ok)throw Error(body.error||'Request failed');return body}catch(e){if(e.name==='AbortError')throw Error('Request timed out. Check the order status before trying again.');throw e}finally{clearTimeout(timer)}}
+function error(e){$('#error').textContent=e.message||String(e)}
+function renderVoice(v){if(!v)return;$('#voice-status').textContent=v.message;$('#voice-start').disabled=voiceBusy||!v.configured||v.running;$('#voice-stop').disabled=voiceBusy||!v.running}
+async function voiceAction(action){voiceBusy=true;$('#voice-start').disabled=true;$('#voice-stop').disabled=true;try{const v=await post('/api/voice/'+action);voiceBusy=false;renderVoice(v)}catch(e){voiceBusy=false;$('#voice-status').textContent='Voice control failed. Check the console connection.';error(e)}}
+$('#voice-start').onclick=()=>voiceAction('start');$('#voice-stop').onclick=()=>voiceAction('stop');
+$('#prepare').onclick=async()=>{if(latestState?.stopped)return;try{$('#error').textContent='';await post('/api/prepare',{sku:$('#sku').value,budget_cents:Math.round(Number($('#budget').value)*100)})}catch(e){error(e)}};
+$('#stop').onclick=async()=>{try{const r=await post('/api/stop');$('#error').textContent=r.device_acknowledged?'Device acknowledged stop.':r.next_step}catch(e){error(e)}};
+$('#sim-place').onclick=()=>simulateFixture(true);$('#sim-remove').onclick=()=>simulateFixture(false);
+function el(tag,text,cls){const n=document.createElement(tag);n.textContent=text;if(cls)n.className=cls;return n}
+function renderDemoMode(s){
+  const mode=$('#mode'),demo=s.demo?.enabled&&s.device_mode==='simulated';
+  mode.className='banner'+(demo?' demo-banner':'');mode.replaceChildren();
+  if(demo){mode.append(el('strong','DEMO ACTIVE'),el('span','Robots & sensors · simulated'),el('span',s.mel?.authenticated?'Mel · live':s.mel?.configured?'Mel · configured':'Mel · unavailable'),el('span',s.voice?.running?'ElevenLabs · voice active':s.voice?.configured?'ElevenLabs · voice ready':'ElevenLabs · unavailable'),el('span','Money · test ledger'));if(s.stopped)mode.append(el('strong','STOP REQUESTED'));}
+  else mode.textContent=`Agents: ${s.provider} | Devices: ${s.device_mode} | Money: TEST LEDGER${s.stopped?' | STOP REQUESTED — restart to reset':''}`;
+}
+function renderRobot(s){
+  const panel=$('#robot-panel');panel.hidden=s.device_mode!=='simulated';if(panel.hidden)return;
+  const jobs=Object.values(s.jobs||{}).filter(job=>['check_stock','check_cart','inspect'].includes(job.operation));
+  const running=jobs.filter(job=>['running','queued'].includes(job.status)),job=running.at(-1)||jobs.at(-1),motion=s.robot_motion;
+  const sku=job?.request?.sku,target=sku&&sku!=='all'?(s.catalog?.[sku]?.name||sku):job?.operation==='check_cart'?'cart items':'stock bays';
+  const currentMotion=motion?.source==='simulated'&&typeof job?.created_at==='number'&&typeof motion.started_at==='number'&&motion.started_at>=job.created_at&&(!sku||sku==='all'||motion.sku===sku);
+  let state='idle',heading='Ready to check the shelves',status='Ask Mel or check a product to send a simulated stock inspection.',result='';
+  if(!assistantConnected){state='offline';heading='Waiting for the connection';status='Live job status is unavailable. The illustration is paused.';}
+  else if(s.stopped){state='paused';heading='Robot check paused';status='Emergency stop requested. No new completion is confirmed.';}
+  else if(job){
+    if(running.length){
+      state=!motion?'running':!currentMotion?'queued':motion.phase==='moving'?'running':motion.phase==='inspecting'?'inspecting':motion.phase==='blocked'?'blocked':motion.phase==='stopped'?'paused':motion.phase==='complete'?'waiting':'queued';
+      heading=state==='running'?'Robot en route to '+target:state==='inspecting'?'Inspecting '+target:state==='blocked'?'Stock inspection blocked':state==='paused'?'Stock inspection paused':'Checking '+target;
+      status=state==='blocked'?'The simulated device could not complete its inspection. Waiting for the job result.':state==='paused'?'The simulated device stopped. Waiting for the job result.':state==='inspecting'?'Reading the simulated shelf. Waiting for completed inventory evidence.':state==='waiting'?'The inventory team is reconciling the simulated check.':state==='queued'?'The inventory team is preparing the simulated inspection. Robot waiting at the dock.':'A simulated inspection is in progress. The count appears when the job completes.';
+      if(running.length>1)status+=` ${running.length} inventory jobs active.`;
+    }else if(job.status==='completed'){
+      state='completed';heading='Simulated stock check completed';status='The inventory job returned its result.';
+      const items=job.result?.items||Object.fromEntries((job.result?.checks||[]).map(item=>[item.sku,item]));
+      if(job.operation==='inspect'&&job.result?.sku)items[job.result.sku]=job.result;
+      result=Object.entries(items).map(([key,item])=>{const quantity=item.evidence?.quantity,name=s.catalog?.[key]?.name||key;return `${name}: ${Number.isInteger(quantity)?quantity+' '+(s.catalog?.[key]?.unit||'units'):'count unavailable'}`;}).join(' · ');
+      if(!result)result='Review the returned evidence in the product or cart details.';
+    }else if(job.status==='failed'){state='failed';heading='Stock check did not complete';status=job.error||'Review inventory activity before requesting another check.';}
+  }
+  if(panel.dataset.job!==String(job?.id||'')){panel.dataset.job=String(job?.id||'');panel.dataset.state='idle';}
+  panel.dataset.state=state;panel.setAttribute('aria-busy',String(Boolean(running.length)&&assistantConnected&&!s.stopped));
+  for(const [id,text] of [['robot-heading',heading],['robot-status',status],['robot-result',result]])if($('#'+id).textContent!==text)$('#'+id).textContent=text;
+}
+const proposalNodes=new Map(),proposalActions=new Map();
+let melAttempt=null,melConversation=null,melConversationSession=null,melFeedback={},assistantConnected=false;
+function melReady(s){return assistantConnected&&Boolean(s?.mel?.configured)&&!s.stopped;}
+function melConversationFor(s){
+  if(melConversationSession===s.session_id&&melConversation)return melConversation;
+  const key='shopswarm-mel-conversation:'+s.session_id;let stored;
+  try{stored=globalThis.sessionStorage?.getItem(key);}catch(e){}
+  melConversation=typeof stored==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(stored)?stored:'console_'+crypto.randomUUID();melConversationSession=s.session_id;
+  try{globalThis.sessionStorage?.setItem(key,melConversation);}catch(e){}
+  return melConversation;
+}
+function melPending(s){return Boolean(melAttempt?.sending||(melAttempt?.jobId&&s.jobs?.[melAttempt.jobId]?.status!=='completed'&&s.jobs?.[melAttempt.jobId]?.status!=='failed'&&!melAttempt.error));}
+function melJobState(s){
+  if(!melAttempt?.jobId)return;const job=s.jobs?.[melAttempt.jobId];if(!job)return;
+  if(job.status==='completed'){melAttempt.completed=true;melFeedback={message:'Mel answered below.'};}
+  else if(job.status==='failed'){melAttempt.error=true;melFeedback={error:true,message:job.error||'Mel could not complete this request. Review tool activity before asking for another change.'};}
+}
+async function askMel(){
+  if(!melReady(latestState)||melPending(latestState))return;
+  const request=$('#mel-request').value.trim();if(!request||request.length>4000){melFeedback={error:true,message:'Enter a request from 1 to 4,000 characters.'};renderMel(latestState);return;}
+  const session=latestState.session_id,conversation_id=melConversationFor(latestState);
+  if(!melAttempt||melAttempt.request!==request||melAttempt.session!==session||melAttempt.completed)melAttempt={request,request_id:crypto.randomUUID(),conversation_id,session};
+  const attempt=melAttempt;attempt.sending=true;attempt.error=false;melFeedback={message:'Sending request to Mel…'};renderMel(latestState);
+  try{const result=await post('/api/assistant',{request,request_id:attempt.request_id,conversation_id});if(latestState.session_id!==session)return;
+    if(typeof result.job_id!=='string'||!result.job_id)throw Error('No Mel request confirmation was returned.');attempt.jobId=result.job_id;melFeedback={message:'Mel is working. Tool activity is available below.'};
+  }catch(e){if(latestState.session_id===session){attempt.error=true;melFeedback={error:true,message:(e.message||String(e))+' The request is unconfirmed. Sending the same text again reuses its request ID; inspect activity before making another change.'};}}
+  finally{attempt.sending=false;if(latestState)renderMel(latestState);await update();}
+}
+$('#mel-ask').onclick=askMel;
+for(const [id,text] of [['coffee','How much coffee is left?'],['spoilage','Which produce or pantry batches need inspection or use first?'],['filter','When should I replace the water filter?']])$('#mel-example-'+id).onclick=()=>{$('#mel-request').value=text;$('#mel-request').focus();};
+const proposalLabels={batch:'Register batch',hold:'Quality hold decision',forecast:'Demand forecast',outcome:'Record food outcome',refill:'Record measured refill',filter_register:'Register filter installation',filter_throughput:'Record filter throughput'};
+const proposalFieldLabels={batch_id:'Batch ID',filter_id:'Filter installation ID',manufacturer:'Manufacturer',model:'Model',instructions_reference:'Manufacturer instructions reference',installed_date:'Installation date',rated_days:'Rated service life (days)',rated_litres:'Rated capacity (litres)',replaces_filter_id:'Prior filter being replaced',total_litres:'Measured cumulative volume (litres)',measured_on:'Measurement date',covers_all_throughput_since_installation:'Covers all flow since installation',measurement_reference:'Measurement evidence',volume_ml:'Measured refill volume (ml)',unit_mass_g:'Mass per unit (g)',handoff_confirmed:'Actual donation handoff confirmed',daily_demand:'Expected units per day',lead_days:'Lead time (days)',review_days:'Review interval (days)',uncertainty_units:'Demand uncertainty (units)',open_order_units:'Units already on order',replaces_batch_id:'Prior batch being replaced'};
+function proposalFingerprint(p){return JSON.stringify([p.proposal_id,p.status,p.operation,p.details,p.reason,p.active,p.session_id,p.device_mode]);}
+function proposalReviewable(p,s){return Boolean(assistantConnected&&s?.mel&&Array.isArray(s.operator_proposals)&&!s.stopped&&p?.active&&p.status==='pending'&&p.session_id===s.session_id&&p.device_mode===s.device_mode);}
+async function reviewProposal(id,decision,fingerprint){
+  const p=latestState?.operator_proposals?.find(p=>p.proposal_id===id),prior=proposalActions.get(id);
+  if(!proposalReviewable(p,latestState)||prior?.pending||prior?.uncertain||prior?.confirmed||proposalFingerprint(p)!==fingerprint)return;
+  const session=latestState.session_id,action={pending:true,message:decision==='apply'?'Applying the reviewed proposal…':'Rejecting proposal…'};proposalActions.set(id,action);renderProposals(latestState);
+  try{const result=await post('/api/proposals/review',{proposal_id:id,decision,retry:false});if(latestState.session_id!==session)return;
+    if(result.proposal_id!==id||!['applied','rejected','failed','applying'].includes(result.status))throw Error('The review result was not confirmed.');
+    const index=latestState.operator_proposals.findIndex(p=>p.proposal_id===id);if(index>=0)latestState.operator_proposals[index]=result;
+    action.confirmed=true;action.error=!['applied','rejected'].includes(result.status);action.message=result.status==='applied'?'Proposal applied. Review the updated record.':result.status==='rejected'?'Proposal rejected.':'Application is incomplete or uncertain. Inspect the record before any further action.';
+  }catch(e){if(latestState.session_id===session){action.uncertain=true;action.error=true;action.message=(e.message||String(e))+' Review was not confirmed. Inspect the proposal and resulting records; this console will not automatically retry.';}}
+  finally{action.pending=false;if(latestState)renderProposals(latestState);await update();}
+}
+function renderProposals(s){
+  const available=Boolean(s.mel&&Array.isArray(s.operator_proposals)),proposals=available?s.operator_proposals:[],pending=proposals.filter(p=>p.active&&p.status==='pending').length;
+  $('#proposal-summary').textContent=`Operator proposals for review${pending?' · '+pending+' pending':''}`;
+  const present=new Set(proposals.map(p=>p.proposal_id));for(const [id,n] of proposalNodes)if(!present.has(id)){n.card.remove();proposalNodes.delete(id);}
+  if(!proposals.length){$('#proposal-list').textContent=available?'No proposals recorded. Ask Mel to draft a change with the facts you provide.':'Proposal review requires the updated backend.';return;}
+  if(!proposalNodes.size)$('#proposal-list').replaceChildren();
+  for(const p of [...proposals].reverse()){
+    let n=proposalNodes.get(p.proposal_id);
+    if(!n){const card=el('article','','proposal-card');card.id='proposal-'+p.proposal_id;const title=el('strong',''),state=el('div','','pill'),reason=el('p',''),facts=el('dl','','proposal-facts'),row=el('div','','row'),apply=el('button','Apply reviewed proposal'),reject=el('button','Reject','secondary'),status=el('p','','action-status');status.setAttribute('role','status');apply.id='proposal-apply-'+p.proposal_id;reject.id='proposal-reject-'+p.proposal_id;row.append(apply,reject);card.append(title,state,reason,facts,row,status);$('#proposal-list').append(card);n={card,title,state,reason,facts,apply,reject,status};proposalNodes.set(p.proposal_id,n);}
+    n.title.textContent=proposalLabels[p.operation]||sustainText(p.operation);n.state.textContent=`${sustainText(p.status)} · ${sustainText(p.device_mode)}${!p.active?' · historical':''} · ${p.proposal_id}`;n.reason.textContent=p.reason||'';
+    const detailsKey=JSON.stringify(p.details);if(n.facts.dataset.details!==detailsKey){n.facts.dataset.details=detailsKey;n.facts.replaceChildren();for(const [key,value] of Object.entries(p.details||{})){n.facts.append(el('dt',proposalFieldLabels[key]||sustainText(key)),el('dd',value===null?'Not specified (null)':typeof value==='object'?JSON.stringify(value):String(value)));}}
+    const action=proposalActions.get(p.proposal_id),canReview=proposalReviewable(p,s)&&!action?.pending&&!action?.uncertain&&!action?.confirmed,fingerprint=proposalFingerprint(p);
+    n.apply.disabled=!canReview;n.reject.disabled=!canReview;n.apply.onclick=()=>reviewProposal(p.proposal_id,'apply',fingerprint);n.reject.onclick=()=>reviewProposal(p.proposal_id,'reject',fingerprint);
+    actionStatus(n.status,action||(['failed','applying'].includes(p.status)?{error:true,message:'Application is incomplete or uncertain. Inspect the outcome; automatic retry is disabled.'}:undefined));
+  }
+}
+function renderMel(s){
+  melJobState(s);const mel=s.mel;
+  $('#mel-readiness').textContent=!assistantConnected?'Backend connection unavailable. Displayed answers and proposals may be historical.':mel?`Mel · ${sustainText(mel.status)} · ${mel.authenticated?'authenticated request verified':'connection not yet verified'}${mel.message?' · '+mel.message:''}`:'Ask Mel requires the updated backend. Existing shop and voice controls remain available.';
+  $('#mel-modes').textContent=`Supervisor: ${mel?.provider||'unavailable'} · Specialists: ${s.provider||'unknown'} · Devices: ${s.device_mode||'unknown'}`;
+  $('#mel-ask').disabled=!melReady(s)||melPending(s);$('#mel-ask').textContent=melPending(s)?'Mel is working…':'Ask Mel';actionStatus($('#mel-submit-status'),melFeedback);
+  $('#voice-routing').textContent=mel?'Speak to Mel about stock, spoilage, water filters, or shopping.':'Mel voice routing requires the updated backend and synchronized voice agent.';
+  const jobs=Object.values(s.jobs||{}).filter(job=>job.operation==='mel_supervisor').sort((a,b)=>(b.created_at||0)-(a.created_at||0)).slice(0,5);
+  if(melAttempt&&!jobs.some(job=>job.id===melAttempt.jobId))jobs.unshift({id:'local-request',request:melAttempt.request,status:melAttempt.error?'unconfirmed':'running'});
+  const responseKey=JSON.stringify(jobs.map(job=>[job.id,job.request,job.status,job.status==='completed'?job.result?.answer:null,job.error]));
+  if($('#mel-responses').dataset.snapshot!==responseKey){$('#mel-responses').dataset.snapshot=responseKey;$('#mel-responses').replaceChildren();for(const job of jobs){const card=el('article','','mel-response');card.append(el('div',job.request||'Mel request','mel-question'));
+    if(job.status==='completed'&&typeof job.result?.answer==='string')card.append(el('div',job.result.answer,'mel-answer'));
+    else card.append(el('div',job.status==='failed'?(job.error||'Mel request failed. Review tool activity.'):job.status==='unconfirmed'?'Request not confirmed. Review tool activity and request status.':job.status==='completed'?'Completed request has no answer. Review tool activity.':'Working with shop tools…','sustain-hint'));$('#mel-responses').append(card);}}
+  const labels={request_received:'Request received',supervisor_started:'Supervisor started',supervisor_tool_started:'Tool started',supervisor_tool_finished:'Tool finished',supervisor_finished:'Tool workflow completed',supervisor_failed:'Tool workflow failed',answer_ready:'Answer ready',request_failed:'Request failed',operator_review_requested:'Operator review requested'};
+  const events=(s.events||[]).filter(event=>event.actor==='mel'&&labels[event.kind]).slice(-8),activityKey=JSON.stringify(events.map(event=>[event.seq,event.kind,event.time,event.data?.tool,event.data?.success]));
+  if($('#mel-activity').dataset.snapshot!==activityKey){$('#mel-activity').dataset.snapshot=activityKey;$('#mel-activity').replaceChildren();for(const event of events)$('#mel-activity').append(el('div',`${new Date(event.time*1000).toLocaleTimeString()} · ${labels[event.kind]}${event.data?.tool?' · '+sustainText(event.data.tool):''}${event.data?.success===false?' · failed':''}`));if(!events.length)$('#mel-activity').textContent='No Mel tool activity recorded.';}
+  renderProposals(s);
+}
+function renderWaterFilters(s){
+  const node=sustainNodes.filterStatus,details=sustainNodes.filterDetails,data=s.water_filters,filters=data?.active_filters||[],key=JSON.stringify(data||{});
+  if(node.dataset.snapshot===key)return;node.dataset.snapshot=key;details.replaceChildren();sustainNodes.filterProgress.replaceChildren();
+  node.textContent=!filters.length?'Unknown — no active filter installation recorded.':filters.some(filter=>filter.assessment?.status==='replacement_due')?'Replacement due under a recorded limit.':filters.every(filter=>filter.assessment?.status==='unknown')?'Replacement timing unknown.':'Review the recorded replacement schedule.';
+  if(!filters.length)details.append(el('p','Missing: '+(data?.missing_information?.join('; ')||'manufacturer, model, instructions reference, installation date and rated service life or volume')+'.'));
+  for(const filter of filters){
+    const a=filter.assessment||{},calendar=a.calendar||{},volume=a.throughput||{},row=el('div','','metric');
+    const overview=el('div','','filter-progress');overview.append(el('strong',`${filter.model}${filter.simulated?' · SIMULATED':''}`,'sustain-hint'));
+    for(const [label,total,remaining,caption] of [['Calendar',calendar.rated_days,calendar.days_remaining,`${calendar.days_remaining} days remaining`],['Volume',volume.rated_litres,volume.remaining_litres,`${sustainNumber(volume.remaining_litres)} L remaining at measurement`]]){
+      if(typeof total==='number'&&total>0&&typeof remaining==='number'&&Number.isFinite(remaining)){
+        const used=Math.min(total,Math.max(0,total-remaining)),labelNode=el('label',`${label} · ${caption}`,remaining<=0?'limit-due':''),bar=el('progress','');bar.setAttribute('max',total);bar.setAttribute('value',used);bar.setAttribute('aria-label',`${filter.model}: ${label.toLowerCase()} limit, ${caption}`);labelNode.append(bar);overview.append(labelNode);
+      }else overview.append(el('span',`${label} remaining · unknown`,'sustain-hint'));
+    }
+    sustainNodes.filterProgress.append(overview);
+    row.append(el('strong',`${filter.manufacturer} · ${filter.model}${filter.simulated?' · SIMULATED':''}`));
+    row.append(el('p',`Installed ${filter.installed_date} · ${sustainText(a.status)}`));
+    row.append(el('p',calendar.due_date?`Calendar due: ${calendar.due_date} · ${calendar.days_remaining} days remaining (${calendar.rated_days} rated days).`:'Calendar due: unknown; no service interval recorded.'));
+    row.append(el('p',typeof volume.remaining_litres==='number'?`Volume remaining at the recorded measurement: ${sustainNumber(volume.remaining_litres)} L · measured ${volume.measured_on}.`:`Volume remaining: unknown. ${volume.reason||'Complete cumulative throughput and manufacturer capacity are required.'}`));
+    if(typeof volume.last_known_remaining_litres==='number'&&volume.remaining_litres===null)row.append(el('p',`Historical measurement only: ${sustainNumber(volume.last_known_remaining_litres)} L remained at ${volume.last_complete_measured_on||volume.measured_on}.`));
+    row.append(el('p','Instructions reference: '+filter.instructions_reference));if(a.missing_information?.length)row.append(el('p','Missing: '+a.missing_information.join('; ')));details.append(row);
+  }
+  details.append(el('p','TDS cannot determine replacement or potability. Refills are not automatically complete filter throughput. Ask Mel to draft installation or measurement records for your review.','sustain-hint'));
+}
+// BEGIN CHART HELPERS
+function chartNumber(value){return Number.isInteger(value)?String(value):Number(value.toPrecision(4)).toString();}
+function chartSvg(tag,attributes={},text){const node=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const [key,value] of Object.entries(attributes))node.setAttribute(key,value);if(text!==undefined)node.textContent=text;return node;}
+function chartTime(value){if(typeof value==='number'&&Number.isFinite(value))return value<1e12?value*1000:value;if(typeof value==='string'&&value.trim())return Date.parse(value);return NaN;}
+function renderTrendChart(container,{points=[],unit='',label='Sensor trend',color='#59d4ba',status='',source='',threshold=null,compact=false}={}){
+  container.replaceChildren();container.classList.add('trend-chart');
+  const valid=[];let skipped=false;for(const point of points){if(point&&typeof point.value==='number'&&Number.isFinite(point.value)){valid.push({...point,breakBefore:!!point.breakBefore||skipped,timeMs:chartTime(point.time)});skipped=false;}else skipped=true;}
+  const stale=/stale|unknown|warming|conditioning|not.ready/i.test(status),provenance=[source,status].filter(Boolean).join(' · ');
+  if(!valid.length){container.append(el('div','No measurements yet','chart-empty'),el('small',[label,provenance].filter(Boolean).join(' · '),'chart-caption'));return;}
+  const timed=valid.length>1&&valid.every(point=>Number.isFinite(point.timeMs))&&new Set(valid.map(point=>point.timeMs)).size===valid.length&&Math.max(...valid.map(point=>point.timeMs))-Math.min(...valid.map(point=>point.timeMs))>=1000;
+  if(timed)valid.sort((a,b)=>a.timeMs-b.timeMs);
+  const cutoff=typeof threshold==='number'?threshold:threshold?.value,hasCutoff=typeof cutoff==='number'&&Number.isFinite(cutoff);
+  const values=valid.map(point=>point.value),actualLow=Math.min(...values),actualHigh=Math.max(...values),min=Math.min(actualLow,...(hasCutoff?[cutoff]:[])),max=Math.max(actualHigh,...(hasCutoff?[cutoff]:[]));
+  const padding=(max-min||Math.max(Math.abs(max)*.1,1))*.16,low=min-padding,high=max+padding;
+  const width=400,height=compact?145:180,left=53,right=16,top=18,bottom=43,plotWidth=width-left-right,plotHeight=height-top-bottom;
+  const y=value=>top+(high-value)/(high-low)*plotHeight;
+  const x=(_,index)=>valid.length===1?left+plotWidth/2:left+(timed?(valid[index].timeMs-valid[0].timeMs)/(valid.at(-1).timeMs-valid[0].timeMs):index/(valid.length-1))*plotWidth;
+  const valueLabel=value=>`${chartNumber(value)}${unit?' '+unit:''}`;
+  const axis=timed?'Time (local)':valid.length>1?'Sample sequence · timing not distinct':'Single sample';
+  const description=`${label}: ${valid.length} ${valid.length===1?'sample':'samples'}, measured range ${valueLabel(actualLow)} to ${valueLabel(actualHigh)}. ${axis}.${provenance?' '+provenance+'.':''}${stale?' Historical or not-ready evidence; not a current verified reading.':''}`;
+  const svg=chartSvg('svg',{viewBox:`0 0 ${width} ${height}`,width:'100%',role:'img','aria-label':description,class:'trend-svg'});svg.style.display='block';
+  svg.append(chartSvg('title',{},description));
+  for(const value of [low,(low+high)/2,high]){
+    svg.append(chartSvg('line',{x1:left,x2:width-right,y1:y(value),y2:y(value),stroke:'#334858','stroke-width':1,'stroke-dasharray':'3 5'}));
+    svg.append(chartSvg('text',{x:left-8,y:y(value)+4,'text-anchor':'end',fill:'#a8becd','font-size':10},chartNumber(value)));
+  }
+  svg.append(chartSvg('text',{x:left,y:11,fill:'#a8becd','font-size':10},unit||'Value'));
+  if(hasCutoff){
+    const thresholdLabel=typeof threshold==='object'&&threshold.label?threshold.label:'Review level';
+    const marker=chartSvg('line',{x1:left,x2:width-right,y1:y(cutoff),y2:y(cutoff),stroke:'#edba67','stroke-width':1.5,'stroke-dasharray':'5 4',class:'chart-threshold'});marker.append(chartSvg('title',{},`${thresholdLabel}: ${valueLabel(cutoff)}`));svg.append(marker);
+  }
+  if(valid.length>1){
+    const path=valid.map((point,index)=>`${index&&!point.breakBefore?'L':'M'}${x(point,index).toFixed(2)} ${y(point.value).toFixed(2)}`).join(' ');
+    svg.append(chartSvg('path',{d:path,fill:'none',stroke:color,'stroke-width':2.5,'stroke-linejoin':'round','stroke-linecap':'round',...(stale?{'stroke-dasharray':'5 4'}:{}),class:'chart-line'}));
+  }
+  valid.forEach((point,index)=>{
+    const circle=chartSvg('circle',{cx:x(point,index),cy:y(point.value),r:valid.length===1?5:3.5,fill:color,stroke:'#11212d','stroke-width':1.5,class:'chart-point'});
+    const when=timed?new Date(point.timeMs).toLocaleString():`Sample ${index+1}`;circle.append(chartSvg('title',{},`${when}: ${valueLabel(point.value)}`));svg.append(circle);
+  });
+  const spansDays=timed&&new Date(valid[0].timeMs).toDateString()!==new Date(valid.at(-1).timeMs).toDateString();
+  const clock=ms=>new Date(ms).toLocaleString([],{...(spansDays?{month:'short',day:'numeric'}:{}),hour:'2-digit',minute:'2-digit',...(valid.at(-1).timeMs-valid[0].timeMs<120000?{second:'2-digit'}:{})});
+  const labels=valid.length===1?[[left+plotWidth/2,'1','middle']]:[[left,timed?clock(valid[0].timeMs):'1','start'],[width-right,timed?clock(valid.at(-1).timeMs):String(valid.length),'end']];
+  for(const [position,text,anchor] of labels)svg.append(chartSvg('text',{x:position,y:height-24,'text-anchor':anchor,fill:'#a8becd','font-size':10},text));
+  svg.append(chartSvg('text',{x:left+plotWidth/2,y:height-6,'text-anchor':'middle',fill:'#a8becd','font-size':10},axis));
+  container.append(svg);
+  const caption=el('div','','chart-caption');caption.append(el('span',`Range ${valueLabel(actualLow)}–${valueLabel(actualHigh)}`));
+  if(hasCutoff)caption.append(el('span',`${typeof threshold==='object'&&threshold.label?threshold.label:'Review level'}: ${valueLabel(cutoff)}`,'chart-threshold-label'));
+  if(provenance)caption.append(el('span',provenance,stale?'chart-historical':'chart-source'));
+  if(stale)caption.append(el('span','Historical / not-ready evidence','chart-historical'));
+  container.append(caption);
+}
+function renderBarChart(container,{rows=[],unit='',label='Recorded quantities',emptyText='No data yet'}={}){
+  container.replaceChildren();container.classList.add('bar-chart');container.setAttribute('role','figure');container.setAttribute('aria-label',label);
+  if(!rows.length){container.append(el('div',emptyText,'chart-empty'));return;}
+  const values=rows.map(row=>typeof row.value==='number'&&Number.isFinite(row.value)&&row.value>=0?row.value:null),max=Math.max(0,...values.filter(value=>value!==null));
+  for(const [index,row] of rows.entries()){
+    const value=values[index],line=el('div','','bar-row'),heading=el('div','','bar-heading'),measure=value===null?'No measurement':`${chartNumber(value)}${unit?' '+unit:''}`;
+    heading.append(el('span',row.label),el('strong',measure));line.append(heading);
+    const rail=el('div','','bar-rail');rail.setAttribute('aria-hidden','true');rail.style.height='7px';rail.style.borderRadius='8px';rail.style.background='#263d4d';rail.style.overflow='hidden';
+    const fill=el('div','','bar-fill');fill.style.height='100%';fill.style.borderRadius='8px';fill.style.background=row.color||'#59d4ba';fill.style.width=`${value!==null&&max?value/max*100:0}%`;rail.append(fill);line.append(rail);
+    if(row.note)line.append(el('small',row.note,'bar-note'));container.append(line);
+  }
+  container.append(el('div',`Scale: 0–${chartNumber(max)}${unit?' '+unit:''}${!max?' · no positive quantities recorded':''}`,'chart-caption bar-scale'));
+}
+// END CHART HELPERS
+// Sustainability forms are created once. Polls update evidence and options, never typed drafts.
+const sustainNodes={zones:{},forms:{},buttons:[],fields:[]},sustainRequests=new Map();
+let sustainPending=false,sustainFeedback={};
+function sustainField(form,id,labelText,{type='text',value='',options,min,step}={}){
+  const label=el('label',labelText),input=el(options?'select':'input','');input.id=id;
+  if(options)for(const [key,text] of options){const option=el('option',text);option.value=key;input.append(option);}
+  else{input.type=type;if(min!==undefined)input.min=String(min);if(step!==undefined)input.step=String(step);}
+  input.value=String(value);label.append(input);form.append(label);sustainNodes.fields.push(input);return input;
+}
+function sustainButton(parent,id,text,handler){const button=el('button',text);button.id=id;button.type='button';button.onclick=handler;parent.append(button);sustainNodes.buttons.push(button);return button;}
+function sustainForm(parent,title,id){const details=el('details','','sustain-details'),summary=el('summary',title),form=el('div','','sustain-form');form.id=id;details.append(summary,form);parent.append(details);sustainNodes.forms[id]=form;return form;}
+function setupSustainability(){
+  const panel=$('#sustainability-panel'),heading=el('div','','row catalog-heading'),title=el('div','');
+  title.append(el('div','Use in time · Order with care · Measure outcomes','eyebrow'),el('h2','Less waste, with evidence'),el('div','Produce, pantry and refill water in one review workflow.','muted'));heading.append(title);
+  sustainButton(heading,'sustain-demo','Load sustainability demo',()=>sustainAction('demo'));
+  sustainNodes.compat=el('p','','compatibility');sustainNodes.compat.id='sustain-compatibility';
+  sustainNodes.provenance=el('p','','sustain-hint provenance');sustainNodes.provenance.id='sustain-provenance';
+  sustainNodes.status=el('p','','action-status');sustainNodes.status.id='sustain-status';sustainNodes.status.setAttribute('role','status');
+  const disclosure=el('details','','data-disclosure');disclosure.append(el('summary','Data sources & measurement limits'),sustainNodes.provenance);
+  panel.append(heading,sustainNodes.compat,disclosure,sustainNodes.status);
+  sustainNodes.summary=el('div','','visual-summary');sustainNodes.summary.id='sustain-summary';panel.append(sustainNodes.summary);
+  const zones=el('div','','zone-grid');
+  for(const [id,name,description,limit] of [
+    ['produce','Produce','Use eligible batches in date order. Inspect storage anomalies.','Ambient conditions and broad VOC trends cannot certify freshness or food safety.'],
+    ['pantry','Pantry & packaged goods','Review near-date stock before planning the next order.','Best-before, use-by and operator planning dates have different meanings.'],
+    ['water','Water & refill','Review TDS trends and record measured refill volume.','TDS does not establish potability. Cup presence does not measure volume.']]){
+    const card=el('article','','zone-card');card.id='zone-'+id;
+    const state=el('div','','zone-state'),metrics=el('div','','metric-list'),inventory=el('p','','muted');
+    const head=el('div','','zone-heading');head.append(el('span',{produce:'♧',pantry:'▦',water:'◒'}[id],'zone-symbol'),el('h3',name));
+    const select=el('select','','zone-select');select.id='metric-'+id;select.setAttribute('aria-label',name+' chart metric');select.onchange=()=>{if(latestState)renderEnvironment(id,latestState.sustainability?.environment);};
+    const value=el('div','','reading-value'),note=el('div','','reading-note'),chart=el('div','','chart-host'),chips=el('div','','zone-chips');chart.id='trend-'+id;
+    const evidence=el('details','','zone-details');evidence.append(el('summary','Sensor details & provenance'),metrics);
+    card.append(head,state,select,value,note,chart,chips,inventory,el('p',limit,'sustain-hint'),evidence);zones.append(card);sustainNodes.zones[id]={card,state,metrics,inventory,select,value,note,chart,chips};
+    if(id==='water'){const filter=el('section','','filter-overview'),detail=el('details','','zone-details');filter.append(el('h4','Filter replacement'));sustainNodes.filterStatus=el('p','','filter-summary');sustainNodes.filterStatus.id='filter-status';sustainNodes.filterProgress=el('div','');sustainNodes.filterProgress.id='filter-progress';sustainNodes.filterDetails=el('div','','filter-facts');sustainNodes.filterDetails.id='filter-details';detail.append(el('summary','Instructions & evidence'),sustainNodes.filterDetails);filter.append(sustainNodes.filterStatus,sustainNodes.filterProgress,detail);card.append(filter);}
+  }
+  panel.append(zones);
+  const visuals=el('div','','visual-grid'),dates=el('section','','visual-card'),impact=el('section','','visual-card');
+  const dateHead=el('div','','chart-heading');dateHead.append(el('h3','Batch dates'));
+  sustainNodes.batchScope=el('select','');sustainNodes.batchScope.id='chart-batch-scope';sustainNodes.batchScope.setAttribute('aria-label','Batch date chart scope');for(const [v,t] of [['current','Current batches'],['history','Retained history']]){const o=el('option',t);o.value=v;sustainNodes.batchScope.append(o);}sustainNodes.batchScope.value='current';sustainNodes.batchScope.onchange=()=>{if(latestState)renderBatchVisual(latestState.sustainability);};dateHead.append(sustainNodes.batchScope);
+  sustainNodes.timeline=el('div','');sustainNodes.timeline.id='batch-timeline';dates.append(dateHead,el('p','Recorded dates, not a prediction of remaining safe life.','visual-muted'),sustainNodes.timeline);
+  const impactHead=el('div','','chart-heading');impactHead.append(el('h3','Recorded outcomes'));
+  sustainNodes.impactScope=el('select','');sustainNodes.impactScope.id='chart-impact-scope';sustainNodes.impactScope.setAttribute('aria-label','Outcome chart evidence source');for(const [v,t] of [['simulated','Simulated records'],['observed','Operator / hardware']]){const o=el('option',t);o.value=v;sustainNodes.impactScope.append(o);}sustainNodes.impactScope.value='simulated';sustainNodes.impactScope.onchange=()=>{sustainNodes.impact.dataset.snapshot='';if(latestState)renderSustainability(latestState);};impactHead.append(sustainNodes.impactScope);impact.append(impactHead);
+  sustainNodes.impact=el('div','');sustainNodes.impact.id='sustain-impact';impact.append(sustainNodes.impact);
+  impact.append(el('p','Waste avoided and water conserved: unavailable without a documented baseline and method. Refill totals show volume dispensed.','sustain-hint'));visuals.append(dates,impact);panel.append(visuals);
+  const layout=el('div','','sustain-layout'),queue=el('details','','sustain-details');queue.open=true;
+  queue.append(el('summary','Shared review queue'));sustainNodes.queue=el('div','');sustainNodes.queue.id='sustain-review';queue.append(sustainNodes.queue);
+  queue.append(el('p','Recommendations need operator review. Checkout, supplier orders, price changes and donations require separate human decisions.','sustain-hint'));
+  layout.append(queue);panel.append(layout);
+  const ledger=el('details','','sustain-details');ledger.append(el('summary','Batch ledger, FEFO & replenishment plans'));
+  sustainNodes.ledger=el('div','');sustainNodes.ledger.id='sustain-ledger';ledger.append(sustainNodes.ledger);panel.append(ledger);
+  const today=new Date().toISOString().slice(0,10),zoneOptions=[['produce','Produce'],['pantry','Pantry / packaged goods']];
+  let form=sustainForm(panel,'Register a batch','sustain-batch-form');
+  sustainField(form,'batch-product','Product / batch name');sustainField(form,'batch-zone','Storage zone',{options:zoneOptions,value:'produce'});
+  sustainField(form,'batch-sku','Catalog product (optional)',{options:[['','Unlinked produce / other']],value:''});
+  sustainField(form,'batch-quantity','Quantity in units',{type:'number',min:1,step:1,value:1});sustainField(form,'batch-mass','Mass per unit in grams (optional)',{type:'number',min:0.01,step:0.01});
+  sustainField(form,'batch-received','Received date',{type:'date',value:today});
+  sustainField(form,'batch-date-type','Date meaning',{options:[['planning','Operator planning date'],['best_before','Best-before quality date'],['use_by','Use-by constraint']],value:'planning'});
+  sustainField(form,'batch-date','Date on record',{type:'date',value:today});
+  sustainField(form,'batch-replaces','Replace a prior simulated batch (optional)',{options:[['','Create a new batch']],value:''});
+  sustainButton(form,'batch-add','Register batch',()=>sustainAction('batch'));
+  const hint=el('p','Registration records a batch; it does not restock the shelf. Linked SKU quantities must reconcile with verified stock. After a simulated server restart, select an old batch to replace, choose the same catalog product, and enter newly reviewed counts and dates. Check stock again; new batch totals must match the fresh observation.','sustain-hint form-wide');form.append(hint);
+  form=sustainForm(panel,'Set a batch demand forecast','sustain-forecast-form');
+  sustainField(form,'forecast-batch','Batch',{options:[]});
+  for(const [id,label,value,step] of [['daily','Expected units / day',3,0.1],['lead','Supplier lead time in days',1,0.1],['review','Review interval in days',1,0.1],['uncertainty','Demand uncertainty in units',0,0.1],['open','Units already on order',0,1]])sustainField(form,'forecast-'+id,label,{type:'number',min:0,step,value});
+  sustainButton(form,'forecast-save','Save operator forecast',()=>sustainAction('forecast'));
+  form.append(el('p','Forecasts apply to the selected batch and are labeled operator estimates. Suggested quantities do not place a supplier order.','sustain-hint form-wide'));
+  form=sustainForm(panel,'Place or release a quality hold','sustain-hold-form');
+  sustainField(form,'hold-batch','Batch',{options:[]});sustainField(form,'hold-state','Decision',{options:[['held','Place quality hold'],['released','Release after operator review']],value:'held'});sustainField(form,'hold-reason','Inspection / release reason');
+  sustainButton(form,'hold-save','Record quality decision',()=>sustainAction('hold'));
+  form=sustainForm(panel,'Record food used, discarded or donated','sustain-outcome-form');
+  sustainField(form,'outcome-batch','Batch',{options:[]});sustainField(form,'outcome-kind','Actual outcome',{options:[['used','Used'],['discarded','Discarded'],['donated','Donated after handoff']],value:'used'});
+  sustainField(form,'outcome-quantity','Quantity in units',{type:'number',min:1,step:1,value:1});sustainField(form,'outcome-reason','Reason / disposal destination / recipient');
+  const checkbox=sustainField(form,'outcome-handoff','Actual donation handoff completed',{type:'checkbox'});checkbox.parentNode.className='check-label';
+  sustainButton(form,'outcome-save','Record actual outcome',()=>sustainAction('outcome'));
+  form.append(el('p','Only record a completed action. Held or ineligible batches cannot be used or donated. Demo batches remain separate simulated outcomes.','sustain-hint form-wide'));
+  form=sustainForm(panel,'Record a measured water refill','sustain-refill-form');
+  sustainField(form,'refill-volume','Measured volume in millilitres',{type:'number',min:1,step:1,value:500});sustainField(form,'refill-note','Measurement method / note',{value:''});
+  sustainField(form,'refill-source','Evidence source',{options:[['operator','Operator measurement'],['demo','Simulated demonstration']],value:'operator'});
+  sustainButton(form,'refill-save','Record measured refill',()=>sustainAction('refill'));
+  form.append(el('p','Enter volume measured with a marked container or other measurement. No flow sensor or scale is connected. DHT11 measures air, not liquid temperature.','sustain-hint form-wide'));
+}
+setupSustainability();
+function sustainSelect(node,options){
+  const key=JSON.stringify(options);if(node.dataset.options===key)return;
+  const old=node.value;node.replaceChildren();for(const [value,label] of options){const option=el('option',label);option.value=value;node.append(option);}
+  node.value=options.some(([value])=>value===old)?old:(options[0]?.[0]||'');node.dataset.options=key;
+}
+function sustainText(value){return String(value??'unknown').replaceAll('_',' ');}
+function sustainNumber(value){return typeof value==='number'&&Number.isFinite(value)?new Intl.NumberFormat('en-US',{maximumFractionDigits:2}).format(value):'unknown';}
+function sustainLitres(value){return typeof value==='number'&&Number.isFinite(value)?sustainNumber(value/1000)+' L':'unknown';}
+const metricLabels={temperature_c:'Ambient temperature',relative_humidity_pct:'Relative humidity',tvoc_ppb:'Broad VOC estimate',eco2_ppm:'Calculated eCO₂',tds_ppm:'TDS estimate',liquid_temperature_c:'Liquid temperature',present:'Fixed-position presence',proximity:'Proximity'};
+function environmentalChartPoints(environment,stream,metric){
+  const samples=(environment?.history||[]).filter(sample=>sample.stream_id===stream.id&&sample.boot_id===stream.boot_id).sort((a,b)=>a.received_at-b.received_at||Number(a.id)-Number(b.id));
+  let previous=null,broken=false;const points=[];
+  for(const sample of samples){
+    const value=sample.values?.[metric],signature=JSON.stringify([sample.readiness,sample.calibration,sample.compensation,sample.baseline]);
+    if(typeof value!=='number'||!Number.isFinite(value)||typeof sample.received_at!=='number'||!Number.isFinite(sample.received_at)){broken=true;continue;}
+    const point={time:sample.received_at,value,breakBefore:broken||Boolean(sample.sequence_gap)||(previous&&(sample.received_at-previous.time>(environment.stale_after_seconds||120)||signature!==previous.signature||sample.status!=='ready'||previous.status!=='ready'))};
+    points.push(point);previous={time:sample.received_at,signature,status:sample.status};broken=false;
+  }
+  if(!points.length&&typeof stream.values?.[metric]==='number'&&Number.isFinite(stream.values[metric])&&typeof stream.received_at==='number')points.push({time:stream.received_at,value:stream.values[metric]});
+  return points;
+}
+function renderBatchVisual(data){
+  const host=sustainNodes.timeline,all=(data?.batches||[]).filter(b=>b.remaining_units>0),history=sustainNodes.batchScope.value==='history';
+  const batches=all.filter(b=>history?b.active===false:b.active!==false).sort((a,b)=>(a.days_to_date??Infinity)-(b.days_to_date??Infinity));
+  const key=JSON.stringify([batches,history]);if(host.dataset.snapshot===key)return;host.dataset.snapshot=key;host.replaceChildren();
+  if(!batches.length){const count=all.filter(b=>b.active===false).length;host.append(el('div',history?'No historical batches.':`No current batch inventory.${count?' '+count+' batches are available under Retained history.':' Register a batch to plot its recorded date.'}`,'chart-empty'));return;}
+  const daysKnown=batches.map(b=>b.days_to_date).filter(value=>typeof value==='number'&&Number.isFinite(value)),start=Math.floor(Math.min(0,...daysKnown)/7)*7,horizon=Math.ceil(Math.max(7,...daysKnown)/7)*7,span=horizon-start;
+  const axis=el('div','','date-axis'),ticks=el('div','');ticks.style.position='relative';ticks.style.height='12px';
+  for(const day of start<0?[start,0,horizon]:[0,horizon/2,horizon]){const tick=el('span',day===0?'Today':(day>0?'+':'')+day+'d');tick.style.position='absolute';tick.style.whiteSpace='nowrap';if(day===horizon)tick.style.right='0';else{tick.style.left=(day-start)/span*100+'%';if(day!==start)tick.style.transform='translateX(-50%)';}ticks.append(tick);}
+  axis.append(el('span',history?'Historical records':'Current batches'),ticks,el('span','Units'));host.append(axis);
+  for(const batch of batches){
+    const row=el('div','','date-row'+(history?' historical':'')),label=el('div','','date-label');
+    const simulated=batch.source==='demo'||batch.device_mode==='simulated';label.append(el('strong',batch.product),el('small',`${sustainText(batch.date_type)} · ${batch.date}${simulated?' · SIMULATED':''}`));
+    const track=el('div','','date-track'),days=batch.days_to_date,known=typeof days==='number'&&Number.isFinite(days),pos=known?(days-start)/span*100:0,today=(0-start)/span*100;
+    const todayMark=el('span','','date-today');todayMark.style.position='absolute';todayMark.style.left=today+'%';todayMark.style.height='20px';todayMark.style.borderLeft='1px dashed #8aa4b5';todayMark.setAttribute('title','Today');track.append(todayMark);
+    if(known){const fill=el('span','','date-fill');fill.style.left=Math.min(today,pos)+'%';fill.style.width=Math.abs(pos-today)+'%';const dot=el('span','','date-dot'+(batch.quality_hold?' held':!batch.eligible?' excluded':''));dot.style.left=pos+'%';dot.setAttribute('title',`${batch.product}: ${batch.date}, ${sustainText(batch.date_type)}${batch.quality_hold?' · quality hold':''}${simulated?' · SIMULATED':''}${history?' · historical only':''}`);track.append(fill,dot);}
+    const count=el('div',sustainNumber(batch.remaining_units),'date-count');count.append(el('small',(known?(days<0?Math.abs(days)+'d past':days===0?'Today':days+'d away'):'Date unknown')+(batch.quality_hold?' · ON HOLD':'')));
+    row.setAttribute('aria-label',`${batch.product}, ${batch.remaining_units} units, ${sustainText(batch.date_type)} ${batch.date}${simulated?', SIMULATED':''}${batch.quality_hold?', quality hold':''}${history?', historical record, not current inventory':''}`);row.append(label,track,count);host.append(row);
+  }
+  const legend=el('div','','chart-legend');for(const [text,cls] of [['Record eligible',''],['Quality hold','amber'],['Excluded / historical','gray']]){const item=el('span','');item.append(el('i','','legend-dot '+cls),el('span',text));legend.append(item);}host.append(legend);
+  host.append(el('p',history?'Historical quantities are excluded from current inventory and forecasts.':'Dots show recorded dates. Eligibility also requires any necessary stock reconciliation.','visual-muted'));
+}
+function renderVisualSummary(data){
+  const active=(data?.batches||[]).filter(b=>b.active!==false&&b.remaining_units>0),scope=sustainNodes.impactScope.value,record=data?.impact?.[scope],simulated=active.filter(b=>b.source==='demo'||b.device_mode==='simulated').length;
+  const tiles=[['Current batch units',data?active.reduce((n,b)=>n+b.remaining_units,0):null,active.length+' active batches'+(simulated?' · '+simulated+' simulated':''),'teal'],['Due soon / past date',data?active.filter(b=>typeof b.days_to_date==='number'&&b.days_to_date<=3).length:null,'Within 3 days or past · review batches','blue'],['Quality holds',data?active.filter(b=>b.quality_hold).length:null,'Batches excluded from use / sale','amber'],['Volume dispensed',record?sustainLitres(record.refill_volume_ml):null,scope==='simulated'?'Simulated records · all sessions':'Operator / hardware · all sessions','blue']];
+  const signature=JSON.stringify(tiles);if(sustainNodes.summary.dataset.snapshot===signature)return;sustainNodes.summary.dataset.snapshot=signature;sustainNodes.summary.replaceChildren();
+  for(const [label,value,caption,tone] of tiles){const tile=el('div','','summary-tile tone-'+tone);tile.append(el('span',label,'stat-label'),el('strong',value??'—','stat-number'),el('span',caption,'stat-caption'));sustainNodes.summary.append(tile);}
+}
+function renderEnvironment(zone,environment){
+  const n=sustainNodes.zones[zone],data=environment?.zones?.[zone],streams=(environment?.streams||[]).filter(stream=>stream.zone===zone);
+  const demoStreams=streams.filter(stream=>stream.source==='demo'||stream.simulated),demo=latestState?.demo?.enabled&&demoStreams.length;
+  n.state.textContent=demo?`Demo station · ${(environment?.alerts||[]).some(alert=>alert.zone===zone)?'simulated readings need inspection':demoStreams.every(stream=>stream.status==='ready')?'live simulated readings':demoStreams.some(stream=>stream.status==='stale')?'stale simulated readings':'simulated readings · '+sustainText(demoStreams.find(stream=>stream.status!=='ready')?.status)}`:`${sustainText(data?.status)} · hardware: ${sustainText(data?.hardware_status)}`;
+  const options=[];for(const stream of streams)for(const [metric,value] of Object.entries(stream.values||{}))if(typeof value==='number')options.push([JSON.stringify([stream.id,metric]),`${metricLabels[metric]||metric} · ${stream.source==='demo'?'demo':'sensor'}`]);
+  const preferred={produce:'tvoc_ppb',pantry:'temperature_c',water:'tds_ppm'}[zone];options.sort((a,b)=>(JSON.parse(b[0])[1]===preferred?1:0)-(JSON.parse(a[0])[1]===preferred?1:0));
+  if(zone==='water')options.push(['refills','Measured refill volume']);sustainSelect(n.select,options);n.select.disabled=!options.length;
+  const chosen=n.select.value,selected=chosen==='refills'?null:options.find(o=>o[0]===chosen),pair=selected?JSON.parse(chosen):[],stream=streams.find(stream=>stream.id===pair[0]),metric=pair[1];
+  if(chosen==='refills'&&Array.isArray(latestState?.sustainability?.refills)){
+    const scope=sustainNodes.impactScope.value,refills=(latestState?.sustainability?.refills||[]).filter(r=>(r.source==='demo'||r.device_mode==='simulated')===(scope==='simulated')).sort((a,b)=>a.occurred_at-b.occurred_at);let total=0;
+    const points=refills.filter(r=>typeof r.volume_ml==='number'&&Number.isFinite(r.volume_ml)).map(r=>({time:r.occurred_at,value:total+=r.volume_ml/1000}));
+    n.value.textContent=sustainNumber(total);n.value.append(el('small','L'));n.note.textContent=scope==='simulated'?'SIMULATED · cumulative recorded volume':'Operator / hardware · cumulative recorded volume';
+    const chartKey=JSON.stringify([points,scope]);if(n.chart.dataset.snapshot!==chartKey){n.chart.dataset.snapshot=chartKey;renderTrendChart(n.chart,{points,unit:'L',label:'Volume dispensed',color:'#83bff7',source:scope,status:'Recorded events; not water conserved'});}
+  }else if(stream){
+    n.value.textContent=sustainNumber(stream.values[metric]);n.value.append(el('small',stream.units?.[metric]||''));n.note.textContent=`${stream.simulated?'SIMULATED · ':''}${stream.status==='ready'?'Latest received sample':sustainText(stream.status)+' · retained reading'}`;
+    const points=environmentalChartPoints(environment,stream,metric),bound=stream.baseline?.thresholds?.[metric],threshold=bound&&typeof bound.max==='number'?{value:bound.max,label:'Review threshold'}:bound&&typeof bound.min==='number'?{value:bound.min,label:'Review threshold'}:null;
+    const chartKey=JSON.stringify([stream.id,metric,points,stream.status,threshold]);if(n.chart.dataset.snapshot!==chartKey){n.chart.dataset.snapshot=chartKey;renderTrendChart(n.chart,{points,unit:stream.units?.[metric]||'',label:metricLabels[metric]||metric,color:zone==='water'?'#83bff7':'#65dfbf',status:stream.status,source:stream.simulated?'SIMULATED':stream.source,threshold,compact:true});}
+  }else{n.value.textContent='—';n.note.textContent='No sensor evidence';n.chart.dataset.snapshot='';n.chart.replaceChildren(el('div','A chart appears when readings arrive.','chart-empty'));}
+  n.chips.replaceChildren();for(const sample of streams)for(const field of ['temperature_c','relative_humidity_pct','present'])if(sample.values?.[field]!==undefined){const raw=sample.values[field],reading=field==='present'?'Cup / position: '+(typeof raw==='boolean'?(raw?'present':'absent'):'unknown'):(field==='temperature_c'?'Air ':'Humidity ')+sustainNumber(raw)+' '+(sample.units?.[field]||'');n.chips.append(el('span',`${reading} · ${sample.simulated||sample.source==='demo'?'SIMULATED':sustainText(sample.source)} · ${sustainText(sample.status)}`));}
+  const signature=JSON.stringify([streams,data?.hardware_status]);if(n.metrics.dataset.snapshot===signature)return;n.metrics.dataset.snapshot=signature;n.metrics.replaceChildren();
+  n.metrics.append(el('p','Hardware verification: '+sustainText(data?.hardware_status),'sustain-hint'));
+  if(!streams.length){n.metrics.append(el('p','Unknown — no environmental readings received.','muted'));return;}
+  for(const stream of streams){
+    const item=el('div','','metric');item.append(el('strong',`${sustainText(stream.sensor).toUpperCase()} · ${sustainText(stream.status)}${stream.simulated?' · SIMULATED':''}`));
+    for(const [metric,value] of Object.entries(stream.values||{})){
+      const measurement=typeof value==='boolean'?(value?'present':'absent'):sustainNumber(value),unit=stream.units?.[metric];
+      item.append(el('small',`${metricLabels[metric]||sustainText(metric)}: ${measurement}${unit&&unit!=='boolean'?' '+unit:''}`));
+      const trend=stream.trend?.[metric];if(trend&&trend.sample_count>1)item.append(el('small',`Trend: ${sustainNumber(trend.first)} → ${sustainNumber(trend.last)} · ${trend.sample_count} readings`,'trend'));
+    }
+    item.append(el('small',`Readiness: ${sustainText(stream.readiness?.state)} · calibration: ${sustainText(stream.calibration?.status)} · compensation: ${sustainText(stream.compensation?.status)}`));
+    if(stream.calibration?.reference)item.append(el('small',`Calibration reference: ${stream.calibration.reference}`));
+    item.append(el('small',stream.baseline?`Baseline: ${sustainText(stream.baseline.kind)} · ${stream.baseline.reference} · sustained for ${stream.baseline.duration_seconds} s before an alert`:'Baseline: unknown; no commissioned threshold reference'));
+    const readiness=stream.readiness||{};if(readiness.warmup_seconds!==undefined||readiness.conditioning_hours!==undefined)item.append(el('small',`Warm-up: ${sustainNumber(readiness.warmup_seconds)} s · conditioning: ${sustainNumber(readiness.conditioning_hours)} h`));
+    item.append(el('small',`Source: ${sustainText(stream.source)} · ${stream.device_id||'unknown device'} · boot ${stream.boot_id||'unknown'} · sequence ${stream.sequence??'unknown'}${stream.sequence_gap?' · sequence gap '+stream.sequence_gap:''}`));
+    item.append(el('small',`Received ${typeof stream.age_seconds==='number'?Math.max(0,Math.floor(stream.age_seconds))+' seconds ago':'at unknown time'}`));n.metrics.append(item);
+  }
+}
+function renderSustainability(s){
+  renderWaterFilters(s);
+  const data=s.sustainability,ready=Boolean(data?.environment),locked=!ready||s.stopped||Boolean(sustainPending);
+  for(const button of sustainNodes.buttons)button.disabled=locked;
+  $('#sustain-demo').disabled=locked||s.device_mode!=='simulated';
+  for(const field of sustainNodes.fields)field.disabled=locked;
+  sustainNodes.compat.textContent=ready?'':'Sustainability workflows need the updated server. Environmental conditions and ecological outcomes are unknown.';sustainNodes.compat.hidden=ready;
+  sustainNodes.provenance.textContent=(data?.environment?.demo_loaded?'DEMO REPLAY · Simulated sensor readings and demo batch outcomes are labeled separately. Real hardware is not verified by the replay.':'Awaiting observations. Register batches or load the explicitly simulated sustainability demonstration.')+(s.device_mode==='simulated'?' Current device mode: simulated. New food outcomes and refill entries remain in the simulated ledger.':'');
+  actionStatus(sustainNodes.status,sustainFeedback);
+  const batches=Array.isArray(data?.batches)?data.batches:[],active=batches.filter(batch=>batch.active!==false),environment=data?.environment;
+  if(ready&&!sustainNodes.impactScope.dataset.initialized){sustainNodes.impactScope.value=s.device_mode==='simulated'?'simulated':'observed';sustainNodes.impactScope.dataset.initialized='true';}
+  if(ready&&!sustainNodes.batchScope.dataset.initialized){if(batches.length&&!active.length)sustainNodes.batchScope.value='history';sustainNodes.batchScope.dataset.initialized='true';}
+  renderVisualSummary(data);renderBatchVisual(data);
+  for(const zone of ['produce','pantry','water']){
+    renderEnvironment(zone,environment);const scoped=active.filter(batch=>batch.zone===zone);
+    sustainNodes.zones[zone].inventory.textContent=zone==='water'?'Refill volumes are recorded below with their measurement source.':`${scoped.length} active batches · ${scoped.reduce((sum,batch)=>sum+(batch.remaining_units||0),0)} units recorded · ${scoped.filter(batch=>batch.quality_hold).length} quality holds`;
+  }
+  const batchOptions=active.filter(batch=>batch.remaining_units>0).map(batch=>[batch.batch_id,`${batch.product} · ${batch.remaining_units} units${batch.quality_hold?' · HELD':''}${batch.source==='demo'||batch.device_mode==='simulated'?' · SIMULATED':''}`]);
+  for(const id of ['forecast-batch','hold-batch','outcome-batch'])sustainSelect($('#'+id),batchOptions);
+  sustainSelect($('#batch-sku'),[['','Unlinked produce / other'],...Object.entries(s.catalog||{}).map(([sku,p])=>[sku,p.name||sku])]);
+  sustainSelect($('#batch-replaces'),[['','Create a new batch'],...batches.filter(batch=>s.device_mode==='simulated'&&batch.active===false&&batch.sku&&batch.source==='operator'&&batch.device_mode==='simulated'&&!batch.replaced_by).map(batch=>[batch.batch_id,`${batch.product} · SKU ${batch.sku} · ${batch.remaining_units} old units`])]);
+  for(const id of ['forecast-save','hold-save','outcome-save'])$('#'+id).disabled=locked||!batchOptions.length;
+  const queueKey=JSON.stringify([environment?.alerts,data?.actions,data?.reconciliation]);
+  if(sustainNodes.queue.dataset.snapshot!==queueKey){
+    sustainNodes.queue.dataset.snapshot=queueKey;sustainNodes.queue.replaceChildren();
+    const items=[...(environment?.alerts||[]).map(alert=>({title:`${sustainText(alert.zone)} · inspection requested${alert.simulated?' · SIMULATED':''}`,message:alert.message})),...(data?.actions||[]).map(action=>({title:`${action.product||action.batch_id||'Inventory'} · ${sustainText(action.type)}`,message:action.message})),...(data?.reconciliation||[]).filter(row=>['mismatch','session_reconciliation_required'].includes(row.status)).map(row=>({title:`${row.sku} · reconcile stock`,message:row.status==='session_reconciliation_required'?'Prior-session batch counts require explicit replacement and stock reconciliation.':`${row.tracked_quantity} batch units versus ${row.observed_quantity??'unknown'} observed. Resolve the discrepancy before allocation.`}))];
+    for(const item of items){const row=el('div','','review-item'+(/inspection|hold|reconcile/i.test(item.title)?' inspection':''));row.append(el('strong',item.title),el('div',item.message));sustainNodes.queue.append(row);}
+    if(!items.length)sustainNodes.queue.append(el('p',ready?'No review requests recorded. Missing observations remain unknown.':'Review queue unavailable until the updated server is running.','muted'));
+  }
+  const impactKey=JSON.stringify([data?.impact||{},sustainNodes.impactScope.value]);if(sustainNodes.impact.dataset.snapshot!==impactKey){
+    sustainNodes.impact.dataset.snapshot=impactKey;sustainNodes.impact.replaceChildren();
+    const scope=sustainNodes.impactScope.value,selected=data?.impact?.[scope],bar=el('div','');bar.id='outcome-bars';
+    sustainNodes.impact.append(el('p',scope==='simulated'?'SIMULATED · all retained sessions':'Operator / hardware records · all retained sessions','scope-note'),bar);
+    renderBarChart(bar,{label:'Recorded food outcomes in units',unit:'units',rows:selected?[['Sold','sold_units','#83bff7'],['Used','used_units','#62d7bb'],['Donated','donated_units','#b1a0e8'],['Discarded','discarded_units','#efb775']].map(([label,key,color])=>({label,value:selected[key],color})):[],emptyText:'No outcome data available'});
+    const refill=el('div','','refill-total');refill.append(el('span','Volume dispensed','visual-muted'),el('strong',selected?sustainLitres(selected.refill_volume_ml):'Unknown'));sustainNodes.impact.append(refill);
+    const details=el('details','','secondary-impact');details.append(el('summary','Compare source totals & mass'));sustainNodes.impact.append(details);
+    for(const [key,title] of [['observed','Operator / verified records'],['simulated','Simulated demonstration records']]){
+      const record=data?.impact?.[key];details.append(el('p',title,'sustain-hint'));
+      details.append(el('p',record?`${sustainNumber(record.used_units)} used · ${sustainNumber(record.sold_units)} sold · ${sustainNumber(record.donated_units)} donated · ${sustainNumber(record.discarded_units)} discarded · ${sustainLitres(record.refill_volume_ml)} dispensed`:'Unknown records','visual-muted'));
+      if(record)details.append(el('p',`Known recorded food mass: ${sustainNumber(record.known_mass_g)} g. Records without unit mass are excluded from mass totals.`,'sustain-hint'));
+    }
+  }
+  const ledgerKey=JSON.stringify([batches,data?.plans,data?.reconciliation]);if(sustainNodes.ledger.dataset.snapshot!==ledgerKey){
+    sustainNodes.ledger.dataset.snapshot=ledgerKey;sustainNodes.ledger.replaceChildren();
+    if(!batches.length)sustainNodes.ledger.append(el('p','No batch dates recorded. Add a batch or load the simulated demonstration.','muted'));
+    for(const batch of [...batches].sort((a,b)=>(a.date||'9999').localeCompare(b.date||'9999'))){
+      const row=el('div','','batch-row');row.append(el('strong',`${batch.product} · ${batch.remaining_units} units${batch.active===false?' · HISTORICAL':''}${batch.source==='demo'||batch.device_mode==='simulated'?' · SIMULATED':''}`));
+      row.append(el('div',`${sustainText(batch.zone)} · ${sustainText(batch.date_type)}: ${batch.date} · received ${batch.received_date} · ${batch.sku?'SKU '+batch.sku:'unlinked batch'}`));
+      row.append(el('div',batch.quality_hold?`QUALITY HOLD: ${batch.hold_reason||'Review required'}`:batch.eligible?`FEFO eligible · ${batch.days_to_date??'?'} days to recorded date`:`Excluded: ${batch.eligibility_reason||'eligibility unknown'}`,batch.quality_hold?'compatibility':'muted'));
+      const plan=(data?.plans||[]).find(plan=>plan.batch_id===batch.batch_id);
+      if(plan){row.append(el('div',`${sustainText(plan.forecast_source||plan.source)} forecast · expected before date: ${sustainNumber(plan.expected_before_date)} · projected surplus: ${sustainNumber(plan.projected_surplus_units)} units · proposed reorder: ${sustainNumber(plan.recommended_order_units)} units`));row.append(el('div',typeof plan.arithmetic==='string'?plan.arithmetic:JSON.stringify(plan.arithmetic),'sustain-hint'));for(const text of [plan.surplus_arithmetic,plan.forecast_scope,plan.history_basis,plan.tradeoff])if(text)row.append(el('div',text,'sustain-hint'));}
+      sustainNodes.ledger.append(row);
+    }
+    for(const row of data?.reconciliation||[])sustainNodes.ledger.append(el('p',`${row.sku} reconciliation: ${sustainText(row.status)} · batch ${row.tracked_quantity??'unknown'} / observed ${row.observed_quantity??'unknown'}`,'sustain-hint'));
+  }
+}
+function sustainValue(id){return $('#'+id).value.trim();}
+function sustainPositive(id,label,{integer=false,zero=false,optional=false}={}){const text=sustainValue(id);if(optional&&!text)return undefined;const value=Number(text);if(!text||!Number.isFinite(value)||(integer&&!Number.isInteger(value))||value<(zero?0:0.000001))throw Error(`${label} must be ${zero?'zero or ':''}a positive ${integer?'whole ':''}number.`);return value;}
+function sustainRequired(id,label){const value=sustainValue(id);if(!value)throw Error(`${label} is required.`);return value;}
+function sustainPayload(kind){
+  if(kind==='demo')return {};
+  if(kind==='batch'){
+    const result={product:sustainRequired('batch-product','Product name'),zone:sustainValue('batch-zone'),quantity:sustainPositive('batch-quantity','Quantity',{integer:true}),date_type:sustainValue('batch-date-type'),date:sustainRequired('batch-date','Batch date'),received_date:sustainRequired('batch-received','Received date'),source:'operator'};
+    for(const value of [result.date,result.received_date])if(!/^\d{4}-\d{2}-\d{2}$/.test(value))throw Error('Enter dates in YYYY-MM-DD format.');
+    const sku=sustainValue('batch-sku');if(sku)result.sku=sku;const mass=sustainPositive('batch-mass','Mass per unit',{optional:true});if(mass!==undefined)result.unit_mass_g=mass;
+    const prior=sustainValue('batch-replaces');if(prior){const batch=latestState.sustainability.batches.find(batch=>batch.batch_id===prior);if(!batch||batch.sku!==sku)throw Error('A replacement must use the same catalog product as the prior batch.');result.replaces_batch_id=prior;}return result;
+  }
+  if(kind==='forecast')return {batch_id:sustainRequired('forecast-batch','Batch'),daily_demand:sustainPositive('forecast-daily','Demand',{zero:true}),lead_days:sustainPositive('forecast-lead','Lead time',{zero:true}),review_days:sustainPositive('forecast-review','Review interval',{zero:true}),uncertainty_units:sustainPositive('forecast-uncertainty','Uncertainty',{zero:true}),open_order_units:sustainPositive('forecast-open','Open order units',{integer:true,zero:true}),source:'operator'};
+  if(kind==='hold')return {batch_id:sustainRequired('hold-batch','Batch'),held:sustainValue('hold-state')==='held',reason:sustainRequired('hold-reason','Quality decision reason')};
+  if(kind==='outcome'){
+    const result={batch_id:sustainRequired('outcome-batch','Batch'),kind:sustainValue('outcome-kind'),quantity:sustainPositive('outcome-quantity','Outcome quantity',{integer:true}),reason:sustainRequired('outcome-reason','Outcome reason'),handoff_confirmed:Boolean($('#outcome-handoff').checked)};
+    const batch=latestState.sustainability.batches.find(batch=>batch.batch_id===result.batch_id);
+    if(result.kind!=='discarded'&&(!batch?.eligible||batch.quality_hold))throw Error('This batch is held or ineligible. Record an inspection decision before use or donation.');
+    if(result.kind==='donated'&&!result.handoff_confirmed)throw Error('Confirm the completed donation handoff before recording donated food.');
+    if(result.quantity>(batch?.remaining_units||0))throw Error('Outcome quantity exceeds the batch units remaining.');return result;
+  }
+  return {volume_ml:sustainPositive('refill-volume','Refill volume'),source:sustainValue('refill-source'),note:sustainRequired('refill-note','Measurement method or note')};
+}
+async function sustainAction(kind){
+  if(!latestState?.sustainability?.environment||latestState.stopped||sustainPending)return;
+  if(kind==='demo'&&latestState.device_mode!=='simulated')return;
+  const paths={demo:'/api/sustainability/demo',batch:'/api/batches/add',hold:'/api/batches/hold',forecast:'/api/forecasts',outcome:'/api/outcomes',refill:'/api/refills'},session=latestState.session_id;
+  let body;try{body=sustainPayload(kind);}catch(e){sustainFeedback={error:true,message:e.message};renderSustainability(latestState);return;}
+  const fingerprint=JSON.stringify([session,body]);let request=sustainRequests.get(kind);
+  if(request?.fingerprint!==fingerprint){request={fingerprint,request_id:crypto.randomUUID()};sustainRequests.set(kind,request);}
+  sustainPending=request;sustainFeedback={message:'Recording…'};renderSustainability(latestState);
+  try{await post(paths[kind],{...body,request_id:request.request_id});if(latestState.session_id!==session)return;sustainRequests.delete(kind);
+    const messages={demo:'Simulated sustainability demonstration loaded. Review labeled evidence and recommendations.',batch:'Batch registered. Review eligibility and reconcile linked stock.',hold:'Quality decision recorded. Review the updated batch eligibility.',forecast:'Operator forecast saved. Proposed orders still require review.',outcome:'Actual outcome recorded with the batch evidence source.',refill:'Measured refill recorded. Volume dispensed is separate from water conserved.'};sustainFeedback={message:messages[kind]};
+  }catch(e){if(latestState.session_id===session)sustainFeedback={error:true,message:e.message+' Retry the same values to reuse this request ID.'};}
+  finally{if(sustainPending===request)sustainPending=false;if(latestState)renderSustainability(latestState);await update();}
+}
+const productNodes=new Map(),cartNodes=new Map(),shopActions=new Map();let cartBudgetDirty=false;let restockKey=null;
+const money=cents=>'$'+(Number(cents||0)/100).toFixed(2);
+const workflowsReady=s=>Boolean(s?.stock&&s?.cart&&Array.isArray(s.cart.lines));
+const cartLocked=s=>Boolean(!workflowsReady(s)||s.stopped||shopActions.get('cart')?.pending||['checking','fulfilling','manual_review'].includes(s.cart.status));
+const cartHasDraft=()=>cartBudgetDirty||[...cartNodes.values()].some(n=>n.quantity.dirty);
+function actionStatus(node,action){node.textContent=action?.message||'';node.className='action-status'+(action?.error?' action-error':'');}
+function quantityInput(id,value,max=20){const n=el('input','');n.id=id;n.type='number';n.min='1';n.max=String(max);n.step='1';n.value=String(value);return n;}
+function updateSelect(node,catalog){const key=JSON.stringify(catalog);if(node.dataset.catalog===key)return;const selected=node.value;node.replaceChildren();for(const [sku,p] of Object.entries(catalog)){const option=el('option',`${p.name||sku} · ${money(p.price_cents)}`);option.value=sku;node.append(option);}node.value=Object.hasOwn(catalog,selected)?selected:(Object.keys(catalog)[0]||'');node.dataset.catalog=key;}
+async function simulateFixture(present){if(!latestState||latestState.stopped||latestState.device_mode!=='simulated')return;const sku=$('#sim-sku').value;if(!latestState.catalog?.[sku])return;try{await post('/api/simulate',{sku,present});update();}catch(e){error(e);}}
+function stockObservation(stock,now=Date.now()/1000){
+  if(!stock||typeof stock.checked_at!=='number')return 'Not checked yet. Recorded stock is not a physical observation.';
+  const age=now-stock.checked_at;const invalid=stock.evidence?.invalidated_by_sensor||stock.observation_stale;
+  if(typeof stock.observed_quantity!=='number')return age>30||age < -2||invalid?'Quantity unconfirmed · stale presence observation. Check stock again.':'Presence checked; quantity remains unconfirmed.';
+  if(age>30||age < -2||invalid)return `Last observed: ${stock.observed_quantity} · stale observation. Check stock again.`;
+  return `Last observed: ${stock.observed_quantity} · ${Math.max(0,Math.floor(age))} seconds ago. Cart stock is checked separately.`;
+}
+function createProduct(sku){
+  const card=el('article','','product');card.id='product-'+sku;
+  const name=el('h3',''),meta=el('div','','muted'),price=el('p',''),recorded=el('p',''),observed=el('p','','muted'),low=el('p','','stock-low');
+  const quantity=quantityInput('product-quantity-'+sku,1);quantity.setAttribute('aria-label','Quantity to add');
+  const add=el('button','Add to cart');add.id='product-add-'+sku;add.onclick=()=>addToCart(sku);
+  const check=el('button','Check stock','secondary');check.id='product-check-'+sku;check.onclick=()=>stockAction(sku,'check');
+  const addRow=el('div','','row');addRow.append(quantity,add,check);
+  const restockQuantity=quantityInput('restock-quantity-'+sku,5,100);restockQuantity.setAttribute('aria-label','Quantity to restock');
+  const restock=el('button','Restock','secondary');restock.id='product-restock-'+sku;restock.onclick=()=>stockAction(sku,'restock',Number(restockQuantity.value));
+  const restockRow=el('div','','row small');restockRow.append(restockQuantity,restock);
+  const status=el('p','','action-status');status.setAttribute('role','status');
+  card.append(name,meta,price,recorded,observed,low,addRow,restockRow,status);$('#catalog-grid').append(card);
+  const nodes={card,name,meta,price,recorded,observed,low,quantity,add,check,restockQuantity,restock,status};productNodes.set(sku,nodes);return nodes;
+}
+function cartApprovalReason(cart,s,now=Date.now()/1000){
+  if(s.stopped)return 'Emergency stop is active. Cart actions are disabled.';
+  if(cart.status==='manual_review')return 'Manual review required. Check delivery evidence before restarting the harness.';
+  if(cart.status!=='awaiting_approval')return cart.status==='needs_changes'?'Resolve the cart issues and recheck stock.':'Check all cart items before approving checkout.';
+  if(!cart.checkout_id||typeof cart.approval_expires_at!=='number')return 'Checkout needs a new stock check.';
+  if(now>cart.approval_expires_at)return 'Cart stock checks expired. Recheck the cart before approving.';
+  if(cart.issues?.length||cart.subtotal_cents>cart.budget_cents)return 'Resolve the cart issues and recheck stock.';
+  if(!cart.lines.length)return 'Add items to the cart first.';
+  for(const line of cart.lines){const check=(cart.checks||[]).find(c=>c.sku===line.sku),e=check?.evidence;
+    if(!check?.enough_stock||check.requested_quantity!==line.quantity||!e?.evidence_id||e.source!==s.device_mode||e.invalidated_by_sensor||typeof e.observed_at!=='number'||now-e.observed_at>30||now-e.observed_at < -2)return 'Cart stock evidence changed or expired. Recheck the cart.';
+  }
+  return '';
+}
+function createCartLine(sku){
+  const card=el('div','','cart-line');card.id='cart-line-'+sku;const name=el('strong',''),price=el('div','','muted');
+  const quantity=quantityInput('cart-quantity-'+sku,1);quantity.setAttribute('aria-label','Cart quantity');quantity.oninput=()=>{quantity.dirty=true;if(latestState)renderCart(latestState);};
+  const save=el('button','Update','secondary');save.id='cart-update-'+sku;save.onclick=()=>cartAction('item',{sku,quantity:Number(quantity.value)});
+  const remove=el('button','Remove','secondary');remove.id='cart-remove-'+sku;remove.onclick=()=>cartAction('item',{sku,quantity:0});
+  const row=el('div','','row small');row.append(quantity,save,remove);card.append(name,price,row);$('#cart-lines').append(card);
+  const nodes={card,name,price,quantity,save,remove};cartNodes.set(sku,nodes);return nodes;
+}
+function renderCart(s){
+  const ready=workflowsReady(s),cart=s.cart,locked=cartLocked(s);
+  for(const id of ['cart-budget','cart-budget-save','cart-clear','cart-check','cart-approve'])$('#'+id).disabled=locked;
+  $('#cart-approve').hidden=true;
+  if(!ready){$('#cart-status').textContent='Cart unavailable';$('#cart-approval-hint').textContent='Updated workflows need an updated server.';return;}
+  $('#cart-status').textContent=`${cart.status.replaceAll('_',' ')} · cart ${cart.id.slice(0,8)} · revision ${cart.version}`;
+  const present=new Set(cart.lines.map(line=>line.sku));for(const [sku,n] of cartNodes){if(!present.has(sku)){n.card.remove();cartNodes.delete(sku);}}
+  if(!cart.lines.length){if($('#cart-lines').textContent!=='Your cart is empty.')$('#cart-lines').textContent='Your cart is empty.';}
+  else{if(!cartNodes.size)$('#cart-lines').replaceChildren();for(const line of cart.lines){const n=cartNodes.get(line.sku)||createCartLine(line.sku);n.name.textContent=s.catalog?.[line.sku]?.name||line.sku;n.price.textContent=`${line.quantity} × ${money(line.unit_price_cents)} = ${money(line.line_total_cents)}`;if(!n.quantity.dirty)n.quantity.value=String(line.quantity);n.quantity.disabled=locked||cart.status==='fulfilled';n.save.disabled=locked||cart.status==='fulfilled';n.remove.disabled=locked||cart.status==='fulfilled';}}
+  $('#cart-total').textContent=`Total ${money(cart.subtotal_cents)}`;
+  if(!cartBudgetDirty)$('#cart-budget').value=(cart.budget_cents/100).toFixed(2);
+  const issueKey=JSON.stringify(cart.issues||[]);if($('#cart-issues').dataset.issues!==issueKey){$('#cart-issues').replaceChildren();for(const issue of cart.issues||[])$('#cart-issues').append(el('li',typeof issue==='string'?issue:JSON.stringify(issue)));$('#cart-issues').dataset.issues=issueKey;}
+  const draft=cartHasDraft(),reason=draft?'Save cart quantity and budget edits before checking or approving.':cartApprovalReason(cart,s);const expired=cart.status==='awaiting_approval'&&Boolean(reason);
+  $('#cart-approval-hint').textContent=cart.status==='fulfilled'?'Fulfillment confirmed. Add a product or start a new cart for another checkout.':(reason||`Stock checked · approve within ${Math.max(0,Math.ceil(cart.approval_expires_at-Date.now()/1000))} seconds.`);
+  $('#cart-check').textContent=expired||cart.status==='needs_changes'?'Recheck cart':'Check cart stock';$('#cart-check').disabled=locked||draft||!cart.lines.length||cart.status==='fulfilled';
+  $('#cart-clear').textContent=cart.status==='fulfilled'?'Start new cart':'Clear cart';$('#cart-clear').disabled=locked||!cart.lines.length;
+  $('#cart-approve').hidden=Boolean(reason);$('#cart-approve').disabled=locked||Boolean(reason);
+  const version=cart.version,checkoutId=cart.checkout_id;
+  $('#cart-check').onclick=()=>cartAction('check',{expected_version:version});
+  $('#cart-clear').onclick=()=>cartAction('clear',{expected_version:version});
+  $('#cart-approve').onclick=()=>cartAction('approve',{expected_version:version,checkout_id:checkoutId});
+  actionStatus($('#cart-message'),shopActions.get('cart'));
+}
+function renderShop(s){
+  const ready=workflowsReady(s),catalog=s.catalog||{};updateSelect($('#sku'),catalog);updateSelect($('#sim-sku'),catalog);
+  $('#workflow-compatibility').textContent=ready?'':'Updated workflows need an updated server. Single-item requests remain available below.';
+  $('#workflow-compatibility').hidden=ready;
+  $('#check-all-stock').disabled=!ready||s.stopped||Boolean(shopActions.get('stock:all')?.pending);
+  $('#sim-place').disabled=s.stopped;$('#sim-remove').disabled=s.stopped;$('#prepare').disabled=Boolean(s.stopped);
+  for(const [sku,n] of productNodes){if(!Object.hasOwn(catalog,sku)){n.card.remove();productNodes.delete(sku);}}
+  if(!productNodes.size)$('#catalog-grid').replaceChildren();
+  for(const [sku,p] of Object.entries(catalog)){const n=productNodes.get(sku)||createProduct(sku),stock=s.stock?.[sku],action=shopActions.get('stock:'+sku);
+    n.name.textContent=p.name||sku;n.meta.textContent=[p.category,p.unit].filter(Boolean).join(' · ');n.price.textContent=money(p.price_cents);
+    n.recorded.textContent=`Recorded quantity: ${stock?.recorded_quantity??p.recorded_stock??'unknown'}`;n.observed.textContent=stockObservation(stock);
+    n.low.textContent=stock?.low_stock?'Low stock flag':'';n.low.hidden=!stock?.low_stock;
+    n.add.disabled=cartLocked(s);n.quantity.disabled=cartLocked(s);
+    const pending=!ready||s.stopped||Boolean(action?.pending)||Boolean(shopActions.get('stock:all')?.pending);
+    n.check.disabled=pending;n.restock.disabled=pending;n.restockQuantity.disabled=pending;
+    n.restock.textContent=s.device_mode==='hardware'?'Request restock':'Restock';actionStatus(n.status,action);
+  }
+  if(!Object.keys(catalog).length)$('#catalog-grid').textContent='No catalog is available yet.';
+  actionStatus($('#stock-global-status'),shopActions.get('stock:all'));
+  const requests=s.restock_requests||[],key=JSON.stringify(requests);if(key!==restockKey){$('#restock-requests').replaceChildren();for(const request of requests.slice(-5).reverse())$('#restock-requests').append(el('p',`${request.sku||'Product'} · ${request.quantity??'?'} requested${request.status?' · '+request.status:''}`));if(!requests.length)$('#restock-requests').textContent='No restock requests.';restockKey=key;}
+  renderCart(s);
+}
+function syncShopActions(s){
+  for(const [key,action] of shopActions){if(!action.pending||!action.jobId)continue;const job=s.jobs[action.jobId];if(!job||job.status==='running')continue;action.pending=false;action.error=job.status==='failed';
+    if(action.error)action.message=job.error||'The operation failed. Review the current state before retrying.';
+    else if(key==='cart'){const status=job.result?.status||s.cart?.status;action.message=action.kind==='approve'?(status==='fulfilled'?'Cart fulfillment confirmed.':'Checkout completed. Review the cart status.'):(status==='awaiting_approval'?'Cart checked. Review the total and approve checkout.':'Cart checked. Review any stock or budget issues.');}
+    else if(action.kind==='restock')action.message=action.deviceMode==='hardware'?'Restock request recorded. Stock quantity has not been confirmed.':'Simulated stock added. Review the latest quantities.';
+    else action.message='Stock check completed. Review the latest observation.';
+  }
+}
+async function stockAction(sku,kind,quantity){
+  if(!workflowsReady(latestState)||latestState.stopped||shopActions.get('stock:'+sku)?.pending||shopActions.get('stock:all')?.pending)return;
+  if(sku!=='all'&&!latestState.catalog?.[sku])return;
+  const action={kind,pending:true,deviceMode:latestState.device_mode,message:kind==='restock'?'Submitting restock…':'Checking stock…'};shopActions.set('stock:'+sku,action);
+  if(kind==='restock'&&(!Number.isInteger(quantity)||quantity<1||quantity>100)){action.pending=false;action.error=true;action.message='Restock quantity must be a whole number from 1 to 100.';renderShop(latestState);return;}
+  renderShop(latestState);
+  try{const result=await post('/api/stock/'+(kind==='restock'?'restock':'check'),kind==='restock'?{sku,quantity}:{sku});if(!result.job_id)throw Error('No job confirmation was returned. Review the stock state before retrying.');action.jobId=result.job_id;}
+  catch(e){action.pending=false;action.error=true;action.message=e.message||String(e);}
+  renderShop(latestState);update();
+}
+async function addToCart(sku){
+  if(cartLocked(latestState))return;const quantity=Number(productNodes.get(sku)?.quantity.value),current=latestState.cart.status==='fulfilled'?0:(latestState.cart.lines.find(line=>line.sku===sku)?.quantity||0);
+  if(!Number.isInteger(quantity)||quantity<1||current+quantity>20){shopActions.set('cart',{error:true,message:'Cart quantity must be a whole number from 1 to 20 per product.'});renderShop(latestState);return;}
+  return cartAction('item',{sku,quantity:current+quantity});
+}
+async function cartAction(kind,values={}){
+  if(cartLocked(latestState))return;
+  const cart=latestState.cart,version=values.expected_version??cart.version,sessionId=latestState.session_id;
+  if((kind==='check'||kind==='approve')&&cartHasDraft()){shopActions.set('cart',{error:true,message:'Save cart quantity and budget edits before checking or approving.'});renderShop(latestState);return;}
+  if(version!==cart.version){shopActions.set('cart',{error:true,message:'Cart changed. Review the current cart and try again.'});renderShop(latestState);return;}
+  if(kind==='approve'&&(values.checkout_id!==cart.checkout_id||cartApprovalReason(cart,latestState))){shopActions.set('cart',{error:true,message:cartApprovalReason(cart,latestState)||'Checkout changed. Check the cart again.'});renderShop(latestState);return;}
+  if(kind==='item'&&(!latestState.catalog?.[values.sku]||!Number.isInteger(values.quantity)||values.quantity<0||values.quantity>20))return;
+  if(kind==='budget'&&(!Number.isInteger(values.budget_cents)||values.budget_cents<1||values.budget_cents>1000000)){shopActions.set('cart',{error:true,message:'Enter a cart budget from $0.01 to $10,000.'});renderShop(latestState);return;}
+  const action={kind,pending:true,message:kind==='approve'?'Submitting checkout approval…':kind==='check'?'Checking every cart item…':'Updating cart…'};shopActions.set('cart',action);renderShop(latestState);
+  try{const body={...values,expected_version:version};const result=await post('/api/cart/'+kind,body);if(latestState.session_id!==sessionId)return;
+    if(kind==='check'||kind==='approve'){if(!result.job_id)throw Error('No job confirmation was returned. Review the cart before retrying.');action.jobId=result.job_id;}
+    else{if(!result.id||!Array.isArray(result.lines))throw Error('Cart update was not confirmed. Refresh the cart before retrying.');if(latestState.cart.id!==result.id||result.version>=latestState.cart.version)latestState.cart=result;action.pending=false;action.message=kind==='clear'?'Cart cleared.':'Cart updated. Check stock before approving.';if(kind==='budget'||kind==='clear')cartBudgetDirty=false;if(kind==='item'&&cartNodes.has(values.sku))cartNodes.get(values.sku).quantity.dirty=false;}
+  }catch(e){action.pending=false;action.error=true;action.message=e.message||String(e);}
+  renderShop(latestState);update();
+}
+$('#check-all-stock').onclick=()=>stockAction('all','check');
+$('#cart-budget').oninput=()=>{cartBudgetDirty=true;if(latestState)renderCart(latestState);};
+$('#cart-budget-save').onclick=()=>cartAction('budget',{budget_cents:Math.round(Number($('#cart-budget').value)*100)});
+function approvalReason(o,s,now=Date.now()/1000){
+  if(o.status!=='awaiting_approval')return '';
+  const e=o.inventory?.evidence||{};
+  if(e.invalidated_by_sensor)return 'Stock changed since inspection. Recheck before approving.';
+  if(typeof e.observed_at!=='number'||!e.evidence_id||e.source!==s.device_mode)return 'Stock needs a fresh inspection before approval.';
+  // Match Swarm.max_age; the server remains authoritative for every approval.
+  if(now-e.observed_at>30||now-e.observed_at < -2)return 'Stock inspection expired after 30 seconds. Recheck before approving.';
+  return '';
+}
+function syncOrderActions(s){
+  for(const action of orderActions.values()){
+    if(!action.pending||!action.jobId)continue;
+    const job=s.jobs[action.jobId];
+    if(!job||job.status==='running')continue;
+    action.pending=false;
+    action.error=job.status==='failed';
+    if(action.error)action.message=job.error||'The request failed. Review the order before retrying.';
+    else if(action.kind==='approve')action.message=job.result?.status==='fulfilled'?'Fulfillment confirmed.':'Request completed. Review the current order status.';
+    else{action.newOrderId=job.result?.id;action.message=action.newOrderId?`Stock checked. Review order ${action.newOrderId.slice(0,8)} above${job.result.status==='awaiting_approval'?'; it still needs your approval.':` (${job.result.status}).`}`:'Stock check completed. Review the latest order.';}
+  }
+}
+async function orderAction(o,kind,sku=o.sku){
+  if(orderActions.get(o.id)?.pending)return;
+  const current=latestState?.orders[o.id];
+  if(!current||latestState.stopped)return;
+  if(kind==='approve'&&(current.status!=='awaiting_approval'||current.version!==o.version||approvalReason(current,latestState))){renderOrders(latestState);return;}
+  const action={kind,pending:true,message:kind==='approve'?'Submitting approval…':'Rechecking stock…'};
+  orderActions.set(o.id,action);$('#error').textContent='';renderOrders(latestState);
+  try{
+    const result=await post(kind==='approve'?'/api/approve':'/api/prepare',kind==='approve'?{order_id:o.id,expected_version:o.version}:{sku,budget_cents:o.budget_cents});
+    if(!result.job_id)throw Error('No job confirmation was returned. Check the order status before retrying.');
+    action.jobId=result.job_id;
+    action.message=kind==='approve'?'Approval received. Checking fulfillment…':'Checking stock…';
+  }catch(e){action.pending=false;action.error=true;action.message=e.message||String(e);}
+  if(latestState)renderOrders(latestState);
+  update();
+}
+function renderOrders(s){
+  const now=Date.now()/1000;
+  const reasons=Object.fromEntries(Object.values(s.orders).map(o=>[o.id,approvalReason(o,s,now)]));
+  // Expiry changes controls once; ticking the countdown never replaces buttons.
+  const orderKey=JSON.stringify([s.orders,s.stopped,reasons,[...orderActions]]);
+  if(orderKey!==lastOrders){
+    const orders=$('#orders');orders.replaceChildren();
+    for(const o of Object.values(s.orders).reverse()){
+      const action=orderActions.get(o.id);const n=el('div','','order');n.id='order-'+o.id;
+      n.append(el('strong',`${o.sku} · ${o.status}`));
+      n.append(el('div',`Order ${o.id.slice(0,8)} · revision ${o.version}`,'pill'));
+      if(o.quote)n.append(el('p',`Quote: $${(o.quote.price_cents/100).toFixed(2)} | Budget: $${(o.budget_cents/100).toFixed(2)}`));
+      if(o.status==='awaiting_approval'){
+        if(action?.newOrderId)n.append(el('p',`Rechecked as order ${action.newOrderId.slice(0,8)}. Use that order's controls.`,'muted'));
+        else{
+          const reason=reasons[o.id];
+          const hint=el('p',reason,'muted');if(!reason)hint.dataset.expires=String(o.inventory.evidence.observed_at+30);n.append(hint);
+          const kind=reason?'recheck':'approve';
+          const b=el('button',action?.pending?(kind==='approve'?'Submitting…':'Checking stock…'):(reason?'Recheck stock':'Approve this order & fulfill'));
+          b.onclick=()=>orderAction(o,kind);b.disabled=s.stopped||Boolean(action?.pending);n.append(b);
+        }
+      }
+      for(const a of o.alternatives||[]){const b=el('button',`Request ${a.sku} · $${(a.price_cents/100).toFixed(2)}`,'secondary');b.onclick=()=>orderAction(o,'recheck',a.sku);b.disabled=s.stopped||Boolean(action?.pending);n.append(b);}
+      if(action?.message){const status=el('p',action.message);status.setAttribute('role','status');if(action.error)status.style.color='#ffc3c3';n.append(status);}
+      if(s.stopped&&o.status==='awaiting_approval')n.append(el('p','Emergency stop is active. Approval and stock checks are disabled.','muted'));
+      if(o.error)n.append(el('p',o.error));orders.append(n);
+    }
+    if(!Object.keys(s.orders).length)orders.textContent='No orders yet.';
+    lastOrders=orderKey;
+  }
+  document.querySelectorAll('[data-expires]').forEach(n=>{n.textContent=`Stock verified · approve within ${Math.max(0,Math.ceil(Number(n.dataset.expires)-now))} seconds, or recheck afterward.`;});
+}
+async function update(){if(busy)return;busy=true;try{const r=await fetch('/api/state');if(!r.ok)throw Error('Console connection failed');const s=await r.json();if(latestState&&s.session_id!==latestState.session_id){orderActions.clear();shopActions.clear();sustainRequests.clear();sustainFeedback={};sustainPending=false;melAttempt=null;melConversation=null;melConversationSession=null;melFeedback={};proposalActions.clear();seenFailedJobs=null;lastOrders=null;cartBudgetDirty=false;for(const n of cartNodes.values())n.quantity.dirty=false;}if(s.cart&&latestState?.cart&&s.session_id===latestState.session_id&&s.cart.version<latestState.cart.version)s.cart=latestState.cart;assistantConnected=true;latestState=s;syncOrderActions(s);syncShopActions(s);renderShop(s);renderSustainability(s);renderMel(s);renderVoice(s.voice);renderDemoMode(s);renderRobot(s);$('#sim').hidden=s.device_mode!=='simulated';$('#sensors').textContent=Object.keys(s.sensor_readings).length?JSON.stringify(s.sensor_readings,null,2):(s.demo?.enabled?'Demo station sensors are simulated; current readings appear in the three zones above.':'No external sensor connected.');
+const agents=$('#agents');agents.replaceChildren();for(const role of ['customer','inventory','robot','finance','marketing']){const events=s.events.filter(e=>e.actor===role);const last=events.at(-1);agents.append(el('span',role,'agent'+(last&&['agent_started','tool_started','delegated','model_leg'].includes(last.kind)?' active':'')))}
+renderOrders(s);
+const events=$('#events');events.replaceChildren();for(const e of [...s.events].reverse()){const n=el('div','', 'event');n.append(el('div',`${e.actor} · ${e.kind}`));n.append(el('div',new Date(e.time*1000).toLocaleTimeString(),'time'));n.append(el('pre',JSON.stringify(e.data,null,2)));events.append(n)}
+const failed=Object.values(s.jobs).filter(j=>j.status==='failed'&&j.operation!=='mel_supervisor');if(seenFailedJobs){for(const job of failed){if(!seenFailedJobs.has(job.id)&&![...orderActions.values(),...shopActions.values()].some(a=>a.jobId===job.id))error(job.error);seenFailedJobs.add(job.id);}}else seenFailedJobs=new Set(failed.map(j=>j.id));
+}catch(e){assistantConnected=false;if(latestState){renderMel(latestState);renderRobot(latestState);}error(e)}finally{busy=false}}update();setInterval(update,800);
+</script></body></html>
