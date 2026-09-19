@@ -1,0 +1,1 @@
+elevenlabs[pyaudio]==2.68.0
