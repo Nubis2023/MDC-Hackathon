@@ -14,7 +14,7 @@
  * checks are what actually run on every request.
  */
 
-import type { Db } from '../db';
+import type { SqlDb } from '../db';
 import { LedgerError } from '../domain/errors';
 import type { Actor, MembershipRole } from '../domain/types';
 
@@ -29,17 +29,14 @@ const APPROVER_ROLES: MembershipRole[] = ['owner', 'approver'];
 /** Roles permitted to post (posting requires prior approval, checked separately). */
 const POSTER_ROLES: MembershipRole[] = ['owner', 'approver', 'bookkeeper'];
 
-export function getMembership(
-  db: Db,
+export async function getMembership(
+  db: SqlDb,
   sellerId: string,
   userId: string,
-): Membership | null {
-  const row = db
-    .prepare(
+): Promise<Membership | null>{
+  const row = await db.get(
       `SELECT seller_id, user_id, role FROM seller_memberships
-        WHERE seller_id = ? AND user_id = ?`,
-    )
-    .get(sellerId, userId) as Membership | undefined;
+        WHERE seller_id = ? AND user_id = ?`, [sellerId, userId]) as Membership | undefined;
   return row ?? null;
 }
 
@@ -49,11 +46,11 @@ export function getMembership(
  * exist" in the response body so the API does not leak which seller IDs
  * exist to an unauthorised caller.
  */
-export function assertSellerAccess(db: Db, sellerId: string, actor: Actor): Membership {
+export async function assertSellerAccess(db: SqlDb, sellerId: string, actor: Actor): Promise<Membership>{
   if (!sellerId || typeof sellerId !== 'string') {
     throw new LedgerError('validation', 'seller_id is required on every financial record');
   }
-  const membership = getMembership(db, sellerId, actor.id);
+  const membership = await getMembership(db, sellerId, actor.id);
   if (!membership) {
     throw new LedgerError(
       'forbidden',
@@ -63,6 +60,7 @@ export function assertSellerAccess(db: Db, sellerId: string, actor: Actor): Memb
   return membership;
 }
 
+/** Pure role check — no database access, so it stays synchronous. */
 export function assertRole(
   membership: Membership,
   allowed: MembershipRole[],
@@ -77,16 +75,16 @@ export function assertRole(
 }
 
 /** Assert the actor holds a role that may approve postings. */
-export function assertCanApprove(db: Db, sellerId: string, actor: Actor): Membership {
-  const membership = assertSellerAccess(db, sellerId, actor);
-  assertRole(membership, APPROVER_ROLES, 'approve ledger updates');
+export async function assertCanApprove(db: SqlDb, sellerId: string, actor: Actor): Promise<Membership>{
+  const membership = await assertSellerAccess(db, sellerId, actor);
+  await assertRole(membership, APPROVER_ROLES, 'approve ledger updates');
   return membership;
 }
 
 /** Assert the actor holds a role that may post. */
-export function assertCanPost(db: Db, sellerId: string, actor: Actor): Membership {
-  const membership = assertSellerAccess(db, sellerId, actor);
-  assertRole(membership, POSTER_ROLES, 'post ledger updates');
+export async function assertCanPost(db: SqlDb, sellerId: string, actor: Actor): Promise<Membership>{
+  const membership = await assertSellerAccess(db, sellerId, actor);
+  await assertRole(membership, POSTER_ROLES, 'post ledger updates');
   return membership;
 }
 
@@ -94,9 +92,7 @@ export function assertCanPost(db: Db, sellerId: string, actor: Actor): Membershi
  * Seller ids the actor can see. Used by the reconciliation interface to scope
  * its listing queries.
  */
-export function accessibleSellerIds(db: Db, actor: Actor): string[] {
-  const rows = db
-    .prepare(`SELECT seller_id FROM seller_memberships WHERE user_id = ?`)
-    .all(actor.id) as Array<{ seller_id: string }>;
+export async function accessibleSellerIds(db: SqlDb, actor: Actor): Promise<string[]>{
+  const rows = await db.all(`SELECT seller_id FROM seller_memberships WHERE user_id = ?`, [actor.id]) as Array<{ seller_id: string }>;
   return rows.map((r) => r.seller_id);
 }

@@ -28,10 +28,10 @@ import {
   makeTestDb,
 } from './helpers';
 
-describe('approval controls', () => {
-  it('requires approval before a proposal can be posted', () => {
-    const { db, sellerId } = makeTestDb();
-    const proposal = proposeLedgerUpdate(db, AGENT, {
+describe('approval controls', async () => {
+  it('requires approval before a proposal can be posted', async () => {
+    const { db, sellerId } = await makeTestDb();
+    const proposal = await proposeLedgerUpdate(db, AGENT, {
       kind: 'record_payment',
       seller_id: sellerId,
       amount_cents: 1000,
@@ -39,29 +39,29 @@ describe('approval controls', () => {
     });
 
     expect(proposal.status).toBe('proposed');
-    expect(() => postLedgerUpdate(db, APPROVER, proposal.id)).toThrowError(
+    await expect(postLedgerUpdate(db, APPROVER, proposal.id)).rejects.toThrowError(
       /requires seller approval/,
     );
   });
 
-  it('posts after a different human approves', () => {
-    const { db, sellerId } = makeTestDb();
-    const proposal = proposeLedgerUpdate(db, AGENT, {
+  it('posts after a different human approves', async () => {
+    const { db, sellerId } = await makeTestDb();
+    const proposal = await proposeLedgerUpdate(db, AGENT, {
       kind: 'record_payment',
       seller_id: sellerId,
       amount_cents: 1000,
       received_at: '2026-09-01T12:00:00.000Z',
     });
-    approveLedgerUpdate(db, APPROVER, proposal.id, { reason: 'looks right' });
+    await approveLedgerUpdate(db, APPROVER, proposal.id, { reason: 'looks right' });
 
-    const result = postLedgerUpdate(db, APPROVER, proposal.id);
+    const result = await postLedgerUpdate(db, APPROVER, proposal.id);
     expect(result.replayed).toBe(false);
     expect(result.entry_id).toBeTruthy();
   });
 
-  it('forbids an agent from approving its own proposal', () => {
-    const { db, sellerId } = makeTestDb();
-    const proposal = proposeLedgerUpdate(db, AGENT, {
+  it('forbids an agent from approving its own proposal', async () => {
+    const { db, sellerId } = await makeTestDb();
+    const proposal = await proposeLedgerUpdate(db, AGENT, {
       kind: 'record_payment',
       seller_id: sellerId,
       amount_cents: 1000,
@@ -69,37 +69,37 @@ describe('approval controls', () => {
     });
 
     try {
-      approveLedgerUpdate(db, AGENT, proposal.id);
+      await approveLedgerUpdate(db, AGENT, proposal.id);
       throw new Error('should have thrown');
     } catch (err) {
       expect((err as LedgerError).code).toBe('self_approval');
     }
   });
 
-  it('forbids a human from approving their own proposal', () => {
-    const { db, sellerId } = makeTestDb();
-    const proposal = proposeLedgerUpdate(db, OWNER, {
+  it('forbids a human from approving their own proposal', async () => {
+    const { db, sellerId } = await makeTestDb();
+    const proposal = await proposeLedgerUpdate(db, OWNER, {
       kind: 'record_payment',
       seller_id: sellerId,
       amount_cents: 1000,
       received_at: '2026-09-01T12:00:00.000Z',
     });
 
-    expect(() => approveLedgerUpdate(db, OWNER, proposal.id)).toThrowError(
+    await expect(approveLedgerUpdate(db, OWNER, proposal.id)).rejects.toThrowError(
       /cannot be approved by the actor that raised it/,
     );
   });
 
-  it('rejects an agent calling the approve tool', () => {
-    const { db, sellerId } = makeTestDb();
-    const proposal = proposeLedgerUpdate(db, BOOKKEEPER, {
+  it('rejects an agent calling the approve tool', async () => {
+    const { db, sellerId } = await makeTestDb();
+    const proposal = await proposeLedgerUpdate(db, BOOKKEEPER, {
       kind: 'record_payment',
       seller_id: sellerId,
       amount_cents: 1000,
       received_at: '2026-09-01T12:00:00.000Z',
     });
 
-    const result = callTool(db, AGENT, 'approve_ledger_update', {
+    const result = await callTool(db, AGENT, 'approve_ledger_update', {
       proposal_id: proposal.id,
     });
     expect(result.ok).toBe(false);
@@ -107,9 +107,9 @@ describe('approval controls', () => {
     expect(result.error?.message).toMatch(/agent may not approve|requires a human/);
   });
 
-  it('lets an agent propose and post once a human has approved', () => {
-    const { db, sellerId } = makeTestDb();
-    const proposed = callTool(db, AGENT, 'propose_ledger_update', {
+  it('lets an agent propose and post once a human has approved', async () => {
+    const { db, sellerId } = await makeTestDb();
+    const proposed = await callTool(db, AGENT, 'propose_ledger_update', {
       operation: {
         kind: 'record_payment',
         seller_id: sellerId,
@@ -121,9 +121,9 @@ describe('approval controls', () => {
     expect(proposed.ok).toBe(true);
     const proposalId = (proposed.result as { proposal_id: string }).proposal_id;
 
-    callTool(db, APPROVER, 'approve_ledger_update', { proposal_id: proposalId });
+    await callTool(db, APPROVER, 'approve_ledger_update', { proposal_id: proposalId });
 
-    const posted = callTool(db, AGENT, 'post_ledger_update', {
+    const posted = await callTool(db, AGENT, 'post_ledger_update', {
       proposal_id: proposalId,
     });
     expect(posted.ok).toBe(true);
@@ -132,9 +132,9 @@ describe('approval controls', () => {
     expect(result.external_sync_state).toBe('not_applicable');
   });
 
-  it('reports an is_balanced preview to the approver', () => {
-    const { db, sellerId } = makeTestDb();
-    const result = callTool(db, AGENT, 'preview_ledger_update', {
+  it('reports an is_balanced preview to the approver', async () => {
+    const { db, sellerId } = await makeTestDb();
+    const result = await callTool(db, AGENT, 'preview_ledger_update', {
       operation: {
         kind: 'record_payment',
         seller_id: sellerId,
@@ -150,9 +150,9 @@ describe('approval controls', () => {
     expect(preview.total_credit_cents).toBe(4200);
   });
 
-  it('previews without persisting anything', () => {
-    const { db, sellerId } = makeTestDb();
-    callTool(db, AGENT, 'preview_ledger_update', {
+  it('previews without persisting anything', async () => {
+    const { db, sellerId } = await makeTestDb();
+    await callTool(db, AGENT, 'preview_ledger_update', {
       operation: {
         kind: 'record_payment',
         seller_id: sellerId,
@@ -160,30 +160,28 @@ describe('approval controls', () => {
         received_at: '2026-09-01T12:00:00.000Z',
       },
     });
-    const proposals = db
-      .prepare(`SELECT COUNT(*) AS n FROM ledger_proposals WHERE seller_id = ?`)
-      .get(sellerId) as { n: number };
+    const proposals = await db.get(`SELECT COUNT(*) AS n FROM ledger_proposals WHERE seller_id = ?`, [sellerId]) as { n: number };
     expect(proposals.n).toBe(0);
   });
 });
 
-describe('auto-post rules', () => {
-  it('does not auto-post when no rule exists', () => {
-    const { db, sellerId } = makeTestDb();
-    const proposal = proposeLedgerUpdate(db, AGENT, {
+describe('auto-post rules', async () => {
+  it('does not auto-post when no rule exists', async () => {
+    const { db, sellerId } = await makeTestDb();
+    const proposal = await proposeLedgerUpdate(db, AGENT, {
       kind: 'record_payment',
       seller_id: sellerId,
       amount_cents: 1000,
       received_at: '2026-09-01T12:00:00.000Z',
     });
-    expect(() => postLedgerUpdate(db, AGENT, proposal.id)).toThrowError(
+    await expect(postLedgerUpdate(db, AGENT, proposal.id)).rejects.toThrowError(
       /requires seller approval/,
     );
   });
 
-  it('does not auto-post from a disabled rule', () => {
-    const { db, sellerId } = makeTestDb();
-    createAutoPostRule(db, {
+  it('does not auto-post from a disabled rule', async () => {
+    const { db, sellerId } = await makeTestDb();
+    await createAutoPostRule(db, {
       id: 'rule_disabled',
       seller_id: sellerId,
       name: 'Disabled rule',
@@ -193,20 +191,20 @@ describe('auto-post rules', () => {
       created_by: OWNER.id,
     });
 
-    const proposal = proposeLedgerUpdate(db, AGENT, {
+    const proposal = await proposeLedgerUpdate(db, AGENT, {
       kind: 'record_payment',
       seller_id: sellerId,
       amount_cents: 1000,
       received_at: '2026-09-01T12:00:00.000Z',
     });
-    expect(() => postLedgerUpdate(db, AGENT, proposal.id)).toThrowError(
+    await expect(postLedgerUpdate(db, AGENT, proposal.id)).rejects.toThrowError(
       /requires seller approval/,
     );
   });
 
-  it('auto-posts from an enabled exact-match rule', () => {
-    const { db, sellerId } = makeTestDb();
-    createAutoPostRule(db, {
+  it('auto-posts from an enabled exact-match rule', async () => {
+    const { db, sellerId } = await makeTestDb();
+    await createAutoPostRule(db, {
       id: 'rule_exact',
       seller_id: sellerId,
       name: 'Exact fee match',
@@ -216,22 +214,22 @@ describe('auto-post rules', () => {
       created_by: OWNER.id,
     });
 
-    const proposal = proposeLedgerUpdate(db, AGENT, {
+    const proposal = await proposeLedgerUpdate(db, AGENT, {
       kind: 'record_fee',
       seller_id: sellerId,
       amount_cents: 2700,
       description: 'Card processing fee',
     });
 
-    const result = postLedgerUpdate(db, AGENT, proposal.id);
+    const result = await postLedgerUpdate(db, AGENT, proposal.id);
     expect(result.entry_id).toBeTruthy();
     expect(result.proposal.approval_basis).toBe('auto_rule');
     expect(result.proposal.auto_rule_id).toBe('rule_exact');
   });
 
-  it('refuses to auto-post when a field does not match exactly', () => {
-    const { db, sellerId } = makeTestDb();
-    createAutoPostRule(db, {
+  it('refuses to auto-post when a field does not match exactly', async () => {
+    const { db, sellerId } = await makeTestDb();
+    await createAutoPostRule(db, {
       id: 'rule_narrow',
       seller_id: sellerId,
       name: 'Only 2700',
@@ -242,20 +240,20 @@ describe('auto-post rules', () => {
     });
 
     // Same description, different amount: not an exact match.
-    const proposal = proposeLedgerUpdate(db, AGENT, {
+    const proposal = await proposeLedgerUpdate(db, AGENT, {
       kind: 'record_fee',
       seller_id: sellerId,
       amount_cents: 5000,
       description: 'Card processing fee',
     });
-    expect(() => postLedgerUpdate(db, AGENT, proposal.id)).toThrowError(
+    await expect(postLedgerUpdate(db, AGENT, proposal.id)).rejects.toThrowError(
       /requires seller approval/,
     );
   });
 
-  it('respects the rule amount ceiling', () => {
-    const { db, sellerId } = makeTestDb();
-    createAutoPostRule(db, {
+  it('respects the rule amount ceiling', async () => {
+    const { db, sellerId } = await makeTestDb();
+    await createAutoPostRule(db, {
       id: 'rule_capped',
       seller_id: sellerId,
       name: 'Fees under 50 dollars',
@@ -267,31 +265,31 @@ describe('auto-post rules', () => {
     });
 
     // Within the cap: auto-posts.
-    const small = proposeLedgerUpdate(db, AGENT, {
+    const small = await proposeLedgerUpdate(db, AGENT, {
       kind: 'record_fee',
       seller_id: sellerId,
       amount_cents: 4000,
       description: 'Card processing fee',
     });
-    expect(postLedgerUpdate(db, AGENT, small.id).proposal.approval_basis).toBe(
+    expect((await postLedgerUpdate(db, AGENT, small.id)).proposal.approval_basis).toBe(
       'auto_rule',
     );
 
     // Over the cap: falls back to manual approval.
-    const large = proposeLedgerUpdate(db, AGENT, {
+    const large = await proposeLedgerUpdate(db, AGENT, {
       kind: 'record_fee',
       seller_id: sellerId,
       amount_cents: 9000,
       description: 'Card processing fee',
     });
-    expect(() => postLedgerUpdate(db, AGENT, large.id)).toThrowError(
+    await expect(postLedgerUpdate(db, AGENT, large.id)).rejects.toThrowError(
       /requires seller approval/,
     );
   });
 
-  it('does not match an empty rule, which would authorise everything', () => {
-    const { db, sellerId } = makeTestDb();
-    createAutoPostRule(db, {
+  it('does not match an empty rule, which would authorise everything', async () => {
+    const { db, sellerId } = await makeTestDb();
+    await createAutoPostRule(db, {
       id: 'rule_empty',
       seller_id: sellerId,
       name: 'Catch-all that must not work',
@@ -301,7 +299,7 @@ describe('auto-post rules', () => {
       created_by: OWNER.id,
     });
 
-    const match = findMatchingAutoPostRule(db, {
+    const match = await findMatchingAutoPostRule(db, {
       seller_id: sellerId,
       proposal_kind: 'record_payment',
       fields: { amount_cents: 1000 },
@@ -310,9 +308,9 @@ describe('auto-post rules', () => {
     expect(match).toBeNull();
   });
 
-  it('does not let a rule for one kind authorise another', () => {
-    const { db, sellerId } = makeTestDb();
-    createAutoPostRule(db, {
+  it('does not let a rule for one kind authorise another', async () => {
+    const { db, sellerId } = await makeTestDb();
+    await createAutoPostRule(db, {
       id: 'rule_kind',
       seller_id: sellerId,
       name: 'Fees only',
@@ -322,20 +320,20 @@ describe('auto-post rules', () => {
       created_by: OWNER.id,
     });
 
-    const proposal = proposeLedgerUpdate(db, AGENT, {
+    const proposal = await proposeLedgerUpdate(db, AGENT, {
       kind: 'record_payment',
       seller_id: sellerId,
       amount_cents: 1000,
       received_at: '2026-09-01T12:00:00.000Z',
     });
-    expect(() => postLedgerUpdate(db, AGENT, proposal.id)).toThrowError(
+    await expect(postLedgerUpdate(db, AGENT, proposal.id)).rejects.toThrowError(
       /requires seller approval/,
     );
   });
 
-  it('stops auto-posting once the rule is disabled again', () => {
-    const { db, sellerId } = makeTestDb();
-    createAutoPostRule(db, {
+  it('stops auto-posting once the rule is disabled again', async () => {
+    const { db, sellerId } = await makeTestDb();
+    await createAutoPostRule(db, {
       id: 'rule_toggle',
       seller_id: sellerId,
       name: 'Toggle me',
@@ -345,22 +343,22 @@ describe('auto-post rules', () => {
       created_by: OWNER.id,
     });
 
-    setAutoPostRuleEnabled(db, sellerId, 'rule_toggle', false);
+    await setAutoPostRuleEnabled(db, sellerId, 'rule_toggle', false);
 
-    const proposal = proposeLedgerUpdate(db, AGENT, {
+    const proposal = await proposeLedgerUpdate(db, AGENT, {
       kind: 'record_fee',
       seller_id: sellerId,
       amount_cents: 2700,
       description: 'Card processing fee',
     });
-    expect(() => postLedgerUpdate(db, AGENT, proposal.id)).toThrowError(
+    await expect(postLedgerUpdate(db, AGENT, proposal.id)).rejects.toThrowError(
       /requires seller approval/,
     );
   });
 
-  it('records the match evidence on the proposal for later explanation', () => {
-    const { db, sellerId } = makeTestDb();
-    createAutoPostRule(db, {
+  it('records the match evidence on the proposal for later explanation', async () => {
+    const { db, sellerId } = await makeTestDb();
+    await createAutoPostRule(db, {
       id: 'rule_evidence',
       seller_id: sellerId,
       name: 'Evidence rule',
@@ -370,17 +368,15 @@ describe('auto-post rules', () => {
       created_by: OWNER.id,
     });
 
-    const proposal = proposeLedgerUpdate(db, AGENT, {
+    const proposal = await proposeLedgerUpdate(db, AGENT, {
       kind: 'record_fee',
       seller_id: sellerId,
       amount_cents: 2700,
       description: 'Card processing fee',
     });
-    postLedgerUpdate(db, AGENT, proposal.id);
+    await postLedgerUpdate(db, AGENT, proposal.id);
 
-    const row = db
-      .prepare(`SELECT auto_rule_match_json FROM ledger_proposals WHERE id = ?`)
-      .get(proposal.id) as { auto_rule_match_json: string };
+    const row = await db.get(`SELECT auto_rule_match_json FROM ledger_proposals WHERE id = ?`, [proposal.id]) as { auto_rule_match_json: string };
     const evidence = JSON.parse(row.auto_rule_match_json) as {
       match_mode: string;
       matched_fields: Record<string, unknown>;
@@ -389,9 +385,9 @@ describe('auto-post rules', () => {
     expect(evidence.matched_fields.description).toBe('Card processing fee');
   });
 
-  it('keeps the ledger balanced across an auto-posted entry', () => {
-    const { db, sellerId } = makeTestDb();
-    createAutoPostRule(db, {
+  it('keeps the ledger balanced across an auto-posted entry', async () => {
+    const { db, sellerId } = await makeTestDb();
+    await createAutoPostRule(db, {
       id: 'rule_bal',
       seller_id: sellerId,
       name: 'Balanced',
@@ -400,28 +396,25 @@ describe('auto-post rules', () => {
       enabled: true,
       created_by: OWNER.id,
     });
-    const proposal = proposeLedgerUpdate(db, AGENT, {
+    const proposal = await proposeLedgerUpdate(db, AGENT, {
       kind: 'record_fee',
       seller_id: sellerId,
       amount_cents: 2700,
       description: 'Card processing fee',
     });
-    postLedgerUpdate(db, AGENT, proposal.id);
+    await postLedgerUpdate(db, AGENT, proposal.id);
 
-    const total = db
-      .prepare(
+    const total = await db.get(
         `SELECT COALESCE(SUM(l.amount_cents), 0) AS total
            FROM journal_lines l
            JOIN journal_entries e ON e.id = l.entry_id
-          WHERE e.seller_id = ? AND e.status = 'posted'`,
-      )
-      .get(sellerId) as { total: number };
+          WHERE e.seller_id = ? AND e.status = 'posted'`, [sellerId]) as { total: number };
     expect(total.total).toBe(0);
   });
 
-  it('attributes an auto-posted approval to the rule, not to a human', () => {
-    const { db, sellerId } = makeTestDb();
-    createAutoPostRule(db, {
+  it('attributes an auto-posted approval to the rule, not to a human', async () => {
+    const { db, sellerId } = await makeTestDb();
+    await createAutoPostRule(db, {
       id: 'rule_attrib',
       seller_id: sellerId,
       name: 'Attribution',
@@ -430,17 +423,15 @@ describe('auto-post rules', () => {
       enabled: true,
       created_by: OWNER.id,
     });
-    const proposal = proposeLedgerUpdate(db, AGENT, {
+    const proposal = await proposeLedgerUpdate(db, AGENT, {
       kind: 'record_fee',
       seller_id: sellerId,
       amount_cents: 2700,
       description: 'Card processing fee',
     });
-    postLedgerUpdate(db, AGENT, proposal.id);
+    await postLedgerUpdate(db, AGENT, proposal.id);
 
-    const row = db
-      .prepare(`SELECT approval_basis, auto_rule_id FROM ledger_proposals WHERE id = ?`)
-      .get(proposal.id) as { approval_basis: string; auto_rule_id: string };
+    const row = await db.get(`SELECT approval_basis, auto_rule_id FROM ledger_proposals WHERE id = ?`, [proposal.id]) as { approval_basis: string; auto_rule_id: string };
     expect(row.approval_basis).toBe('auto_rule');
     expect(row.auto_rule_id).toBe('rule_attrib');
   });

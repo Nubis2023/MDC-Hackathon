@@ -14,8 +14,35 @@ import { randomUUID, createHash } from 'node:crypto';
  * different layers (service for idempotency, database for source events).
  */
 
+/**
+ * Monotonic sequence, so ids written inside the same millisecond still sort
+ * in creation order.
+ *
+ * The original code ordered by `rowid`, a strictly increasing insertion
+ * counter. Postgres has no rowid, so `ORDER BY id` had to become a faithful
+ * replacement — and a timestamp alone is not enough: two rows inserted in the
+ * same millisecond would tie and fall through to the random suffix, which is
+ * what made the sync-attempt history test flaky. This counter guarantees ids
+ * increase within a millisecond; the random suffix keeps them unique across
+ * processes.
+ */
+let lastStampMs = 0;
+let seqInMs = 0;
+
 export function newId(prefix: string): string {
-  return `${prefix}_${randomUUID().replace(/-/g, '').slice(0, 24)}`;
+  const now = Date.now();
+  if (now === lastStampMs) {
+    seqInMs += 1;
+  } else {
+    lastStampMs = now;
+    seqInMs = 0;
+  }
+  // Both fields are zero-padded to a fixed width, so lexicographic order on
+  // the id equals creation order.
+  const stamp = now.toString(36).padStart(9, '0');
+  const seq = seqInMs.toString(36).padStart(4, '0');
+  const rand = randomUUID().replace(/-/g, '').slice(0, 11);
+  return `${prefix}_${stamp}${seq}${rand}`;
 }
 
 /**

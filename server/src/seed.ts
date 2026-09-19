@@ -20,7 +20,7 @@
 
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { DEFAULT_DB_PATH, immediateTransaction, openDb, type Db } from './db';
+import { DEFAULT_DB_PATH, describeDatabase, openDatabaseFromEnv, openDb, type SqlDb } from './db';
 import type { Actor } from './domain/types';
 import { MAPPING_KEYS } from './domain/types';
 import { createAdjustment, approveAdjustment } from './services/adjustments';
@@ -232,23 +232,20 @@ const ACME_OWNER: Actor = USERS[3]!;
 const AGENT: Actor = USERS[4]!;
 
 /** Resolve the payment a posting created, by its unique reference. */
-function requirePaymentId(db: Db, sellerId: string, reference: string): string {
-  const row = db
-    .prepare(
+async function requirePaymentId(db: SqlDb, sellerId: string, reference: string): Promise<string>{
+  const row = await db.get(
       `SELECT id FROM payments WHERE seller_id = ? AND reference = ?
-        ORDER BY rowid DESC LIMIT 1`,
-    )
-    .get(sellerId, reference) as { id: string } | undefined;
+        ORDER BY id DESC LIMIT 1`, [sellerId, reference]) as { id: string } | undefined;
   if (!row) {
     throw new Error(`seed: no payment found for seller ${sellerId} ref ${reference}`);
   }
   return row.id;
 }
 
-function wipe(db: Db): void {
+async function wipe(db: SqlDb): Promise<void>{
   // Order matters only for readability — every FK is ON DELETE CASCADE from
   // sellers, so deleting sellers clears the financial data.
-  db.exec(`
+  await db.exec(`
     DELETE FROM external_sync_attempts;
     DELETE FROM audit_events;
     DELETE FROM ledger_proposals;
@@ -271,63 +268,56 @@ function wipe(db: Db): void {
   `);
 }
 
-function insertBaseData(db: Db): void {
-  const insSeller = db.prepare(
-    `INSERT INTO sellers (id, name, currency, authoritative_system) VALUES (?, ?, ?, ?)`,
-  );
+async function insertBaseData(db: SqlDb): Promise<void> {
   for (const s of SELLERS) {
-    insSeller.run(s.id, s.name, s.currency, s.authoritative_system);
+    await db.run(
+      `INSERT INTO sellers (id, name, currency, authoritative_system) VALUES (?, ?, ?, ?)`,
+      [s.id, s.name, s.currency, s.authoritative_system],
+    );
   }
 
-  const insUser = db.prepare(`INSERT INTO users (id, name, kind) VALUES (?, ?, ?)`);
-  for (const u of USERS) insUser.run(u.id, u.name, u.kind);
+  for (const u of USERS) {
+    await db.run(`INSERT INTO users (id, name, kind) VALUES (?, ?, ?)`, [
+      u.id,
+      u.name,
+      u.kind,
+    ]);
+  }
 
-  const insMembership = db.prepare(
-    `INSERT INTO seller_memberships (seller_id, user_id, role) VALUES (?, ?, ?)`,
-  );
-  for (const m of MEMBERSHIPS) insMembership.run(m.seller_id, m.user_id, m.role);
+  for (const m of MEMBERSHIPS) {
+    await db.run(
+      `INSERT INTO seller_memberships (seller_id, user_id, role) VALUES (?, ?, ?)`,
+      [m.seller_id, m.user_id, m.role],
+    );
+  }
 
-  const insAccount = db.prepare(
-    `INSERT INTO gl_accounts (id, seller_id, code, name, type) VALUES (?, ?, ?, ?, ?)`,
-  );
-  const insMapping = db.prepare(
-    `INSERT INTO account_mappings (seller_id, mapping_key, side, account_id)
-     VALUES (?, ?, ?, ?)`,
-  );
   for (const seller of SELLERS) {
     for (const a of ACCOUNTS) {
       // Account ids are namespaced per seller so the composite key is unique.
-      insAccount.run(`${seller.id}__${a.id}`, seller.id, a.code, a.name, a.type);
+      await db.run(
+        `INSERT INTO gl_accounts (id, seller_id, code, name, type) VALUES (?, ?, ?, ?, ?)`,
+        [`${seller.id}__${a.id}`, seller.id, a.code, a.name, a.type],
+      );
     }
     for (const m of MAPPINGS) {
-      insMapping.run(seller.id, m.mapping_key, m.side, `${seller.id}__${m.account_id}`);
+      await db.run(
+        `INSERT INTO account_mappings (seller_id, mapping_key, side, account_id)
+         VALUES (?, ?, ?, ?)`,
+        [seller.id, m.mapping_key, m.side, `${seller.id}__${m.account_id}`],
+      );
     }
   }
 }
 
-function insertInvoice(db: Db, sellerId: string, inv: SeedInvoice): void {
+async function insertInvoice(db: SqlDb, sellerId: string, inv: SeedInvoice): Promise<void>{
   const total = inv.subtotal_cents + inv.tax_cents;
-  db.prepare(
+  await db.run(
     `INSERT INTO invoices
        (id, seller_id, customer_name, number, issue_date, due_date, currency,
         subtotal_cents, tax_cents, total_cents, balance_cents, status, version)
-     VALUES (?, ?, ?, ?, ?, ?, 'USD', ?, ?, ?, ?, 'open', 1)`,
-  ).run(
-    inv.id,
-    sellerId,
-    inv.customer_name,
-    inv.number,
-    inv.issue_date,
-    inv.due_date,
-    inv.subtotal_cents,
-    inv.tax_cents,
-    total,
-    total,
-  );
-  const invoice = db
-    .prepare(`SELECT * FROM invoices WHERE id = ?`)
-    .get(inv.id) as Parameters<typeof scheduleRemindersForInvoice>[1];
-  scheduleRemindersForInvoice(db, invoice);
+     VALUES (?, ?, ?, ?, ?, ?, 'USD', ?, ?, ?, ?, 'open', 1)`, [inv.id, sellerId, inv.customer_name, inv.number, inv.issue_date, inv.due_date, inv.subtotal_cents, inv.tax_cents, total, total]);
+  const invoice = await db.get(`SELECT * FROM invoices WHERE id = ?`, [inv.id]) as Parameters<typeof scheduleRemindersForInvoice>[1];
+  await scheduleRemindersForInvoice(db, invoice);
 }
 
 /**
@@ -337,28 +327,28 @@ function insertInvoice(db: Db, sellerId: string, inv: SeedInvoice): void {
  * therefore exactly what the service produces, including entry numbering,
  * audit events and reminder suppression.
  */
-function runWorkflow(
-  db: Db,
+async function runWorkflow(
+  db: SqlDb,
   proposer: Actor,
   approver: Actor,
   op: OperationInput,
-): string {
-  const proposal = proposeLedgerUpdate(db, proposer, op);
+): Promise<string>{
+  const proposal = await proposeLedgerUpdate(db, proposer, op);
   if (proposal.proposed_by !== approver.id) {
-    approveLedgerUpdate(db, approver, proposal.id, { reason: 'seeded workflow approval' });
+    await approveLedgerUpdate(db, approver, proposal.id, { reason: 'seeded workflow approval' });
   }
-  const result = postLedgerUpdate(db, approver, proposal.id);
+  const result = await postLedgerUpdate(db, approver, proposal.id);
   return result.entry_id;
 }
 
-function seedNorthwind(db: Db): void {
+async function seedNorthwind(db: SqlDb): Promise<void>{
   const sellerId = 'seller_northwind';
 
   for (const inv of NORTHWIND_INVOICES) {
-    insertInvoice(db, sellerId, inv);
+    await insertInvoice(db, sellerId, inv);
 
     // 1. Issue the invoice: DR AR / CR revenue + tax.
-    runWorkflow(db, BOOKKEEPER, APPROVER, {
+    await runWorkflow(db, BOOKKEEPER, APPROVER, {
       kind: 'issue_invoice',
       seller_id: sellerId,
       invoice_id: inv.id,
@@ -366,7 +356,7 @@ function seedNorthwind(db: Db): void {
 
     // 2. Record the confirmed payment: DR cash / CR unapplied cash.
     if (inv.settle_cents > 0) {
-      const paymentProposal = proposeLedgerUpdate(db, AGENT, {
+      const paymentProposal = await proposeLedgerUpdate(db, AGENT, {
         kind: 'record_payment',
         seller_id: sellerId,
         amount_cents: inv.settle_cents,
@@ -374,14 +364,14 @@ function seedNorthwind(db: Db): void {
         reference: inv.reference,
         payer_name: inv.customer_name,
       });
-      approveLedgerUpdate(db, APPROVER, paymentProposal.id, {
+      await approveLedgerUpdate(db, APPROVER, paymentProposal.id, {
         reason: 'seeded workflow approval',
       });
-      postLedgerUpdate(db, APPROVER, paymentProposal.id);
-      const paymentId = requirePaymentId(db, sellerId, inv.reference);
+      await postLedgerUpdate(db, APPROVER, paymentProposal.id);
+      const paymentId = await requirePaymentId(db, sellerId, inv.reference);
 
       // 3. Allocate the payment to the invoice.
-      runWorkflow(db, AGENT, APPROVER, {
+      await runWorkflow(db, AGENT, APPROVER, {
         kind: 'allocate_payment',
         seller_id: sellerId,
         payment_id: paymentId,
@@ -391,7 +381,7 @@ function seedNorthwind(db: Db): void {
 
       // 4. Processor fee against the payment.
       if (inv.fee_cents) {
-        runWorkflow(db, BOOKKEEPER, APPROVER, {
+        await runWorkflow(db, BOOKKEEPER, APPROVER, {
           kind: 'record_fee',
           seller_id: sellerId,
           payment_id: paymentId,
@@ -402,7 +392,7 @@ function seedNorthwind(db: Db): void {
 
       // 5. Refund part of the payment, re-opening the invoice balance.
       if (inv.refund_cents) {
-        runWorkflow(db, APPROVER, OWNER, {
+        await runWorkflow(db, APPROVER, OWNER, {
           kind: 'record_refund',
           seller_id: sellerId,
           payment_id: paymentId,
@@ -415,7 +405,7 @@ function seedNorthwind(db: Db): void {
 
     // 6. Credit note against the invoice.
     if (inv.credit_note_cents) {
-      runWorkflow(db, BOOKKEEPER, APPROVER, {
+      await runWorkflow(db, BOOKKEEPER, APPROVER, {
         kind: 'apply_credit_note',
         seller_id: sellerId,
         invoice_id: inv.id,
@@ -426,7 +416,7 @@ function seedNorthwind(db: Db): void {
   }
 
   // 7. A manual write-off adjustment that requires its own approval.
-  const adjustment = createAdjustment(db, BOOKKEEPER, {
+  const adjustment = await createAdjustment(db, BOOKKEEPER, {
     seller_id: sellerId,
     invoice_id: 'inv_nw_1004',
     amount_cents: 25000,
@@ -434,8 +424,8 @@ function seedNorthwind(db: Db): void {
     mapping_key: MAPPING_KEYS.ADJUSTMENT,
     memo: 'Goodwill write-off approved by finance',
   });
-  approveAdjustment(db, OWNER, sellerId, adjustment.id);
-  runWorkflow(db, BOOKKEEPER, OWNER, {
+  await approveAdjustment(db, OWNER, sellerId, adjustment.id);
+  await runWorkflow(db, BOOKKEEPER, OWNER, {
     kind: 'post_adjustment',
     seller_id: sellerId,
     adjustment_id: adjustment.id,
@@ -444,7 +434,7 @@ function seedNorthwind(db: Db): void {
   // 8. An exact-match auto-post rule, left DISABLED so the default posture
   //    (approval required) is what the seeded data demonstrates. The rule is
   //    there to show the configuration surface and for the tests to enable.
-  createAutoPostRule(db, {
+  await createAutoPostRule(db, {
     id: 'rule_nw_fees',
     seller_id: sellerId,
     name: 'Auto-post processing fees up to $50',
@@ -461,7 +451,7 @@ function seedNorthwind(db: Db): void {
   //    applying the cash, and a seller user has to approve it. It also puts
   //    real unapplied cash on the books, which the reconciliation view
   //    reports separately from outstanding AR.
-  const unappliedProposal = proposeLedgerUpdate(db, BOOKKEEPER, {
+  const unappliedProposal = await proposeLedgerUpdate(db, BOOKKEEPER, {
     kind: 'record_payment',
     seller_id: sellerId,
     amount_cents: 50000,
@@ -469,13 +459,13 @@ function seedNorthwind(db: Db): void {
     reference: 'ACH-77310',
     payer_name: 'Blue Ridge Catering',
   });
-  approveLedgerUpdate(db, APPROVER, unappliedProposal.id, {
+  await approveLedgerUpdate(db, APPROVER, unappliedProposal.id, {
     reason: 'seeded workflow approval',
   });
-  postLedgerUpdate(db, APPROVER, unappliedProposal.id);
-  const unappliedPaymentId = requirePaymentId(db, sellerId, 'ACH-77310');
+  await postLedgerUpdate(db, APPROVER, unappliedProposal.id);
+  const unappliedPaymentId = await requirePaymentId(db, sellerId, 'ACH-77310');
 
-  proposeLedgerUpdate(db, AGENT, {
+  await proposeLedgerUpdate(db, AGENT, {
     kind: 'allocate_payment',
     seller_id: sellerId,
     payment_id: unappliedPaymentId,
@@ -484,20 +474,20 @@ function seedNorthwind(db: Db): void {
   });
 }
 
-function seedAcme(db: Db): void {
+async function seedAcme(db: SqlDb): Promise<void>{
   const sellerId = 'seller_acme';
   // The agent proposes and the seller's owner approves — the same separation
   // the northwind workflow uses, and required because one actor may never
   // approve its own proposal.
   for (const inv of ACME_INVOICES) {
-    insertInvoice(db, sellerId, inv);
-    runWorkflow(db, AGENT, ACME_OWNER, {
+    await insertInvoice(db, sellerId, inv);
+    await runWorkflow(db, AGENT, ACME_OWNER, {
       kind: 'issue_invoice',
       seller_id: sellerId,
       invoice_id: inv.id,
     });
     if (inv.settle_cents > 0) {
-      const paymentProposal = proposeLedgerUpdate(db, AGENT, {
+      const paymentProposal = await proposeLedgerUpdate(db, AGENT, {
         kind: 'record_payment',
         seller_id: sellerId,
         amount_cents: inv.settle_cents,
@@ -505,12 +495,12 @@ function seedAcme(db: Db): void {
         reference: inv.reference,
         payer_name: inv.customer_name,
       });
-      approveLedgerUpdate(db, ACME_OWNER, paymentProposal.id, {
+      await approveLedgerUpdate(db, ACME_OWNER, paymentProposal.id, {
         reason: 'seeded workflow approval',
       });
-      postLedgerUpdate(db, ACME_OWNER, paymentProposal.id);
-      const paymentId = requirePaymentId(db, sellerId, inv.reference);
-      runWorkflow(db, AGENT, ACME_OWNER, {
+      await postLedgerUpdate(db, ACME_OWNER, paymentProposal.id);
+      const paymentId = await requirePaymentId(db, sellerId, inv.reference);
+      await runWorkflow(db, AGENT, ACME_OWNER, {
         kind: 'allocate_payment',
         seller_id: sellerId,
         payment_id: paymentId,
@@ -521,39 +511,88 @@ function seedAcme(db: Db): void {
   }
 }
 
-export function seed(db: Db): void {
-  immediateTransaction(db, () => {
-    wipe(db);
-    insertBaseData(db);
-    seedNorthwind(db);
-    seedAcme(db);
+export async function seed(db: SqlDb): Promise<void> {
+  // One transaction for the whole seed, and every statement inside goes
+  // through `tx`. Using `db` here would run outside the transaction on a
+  // pooled driver — committing independently, and deadlocking when the pool
+  // has a single connection held by this transaction.
+  await db.transaction(async (tx) => {
+    await wipe(tx);
+    await insertBaseData(tx);
+    await seedNorthwind(tx);
+    await seedAcme(tx);
   });
 }
 
-export function seedToFile(file: string = DEFAULT_DB_PATH): void {
+/**
+ * Seed a database.
+ *
+ * Uses the environment-selected backend, so the same script seeds a local
+ * SQLite file or a Supabase project depending on SUPABASE_DB_URL. The SQLite
+ * path creates its directory first; Postgres is remote and needs no setup.
+ */
+export async function seedToEnv(): Promise<void> {
+  const db = openDatabaseFromEnv();
+  try {
+    await seed(db);
+    const counts = {
+      invoices: (await db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM invoices`))!.n,
+      payments: (await db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM payments`))!.n,
+      journal_entries: (
+        await db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM journal_entries`)
+      )!.n,
+      proposals: (
+        await db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM ledger_proposals`)
+      )!.n,
+      audit_events: (
+        await db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM audit_events`)
+      )!.n,
+    };
+    console.log(`seeded ${describeDatabase(db)}`);
+    console.table(counts);
+  } finally {
+    await db.close();
+  }
+}
+
+/** Seed a specific SQLite file. Kept for tests and local scripting. */
+export async function seedToFile(file: string = DEFAULT_DB_PATH): Promise<void> {
   // The database directory is not tracked by git, so it may not exist on a
   // fresh clone. Create it rather than failing on open.
   mkdirSync(dirname(file), { recursive: true });
   const db = openDb({ filename: file });
-  seed(db);
-  const counts = {
-    invoices: (db.prepare(`SELECT COUNT(*) AS n FROM invoices`).get() as { n: number }).n,
-    payments: (db.prepare(`SELECT COUNT(*) AS n FROM payments`).get() as { n: number }).n,
-    journal_entries: (
-      db.prepare(`SELECT COUNT(*) AS n FROM journal_entries`).get() as { n: number }
-    ).n,
-    proposals: (
-      db.prepare(`SELECT COUNT(*) AS n FROM ledger_proposals`).get() as { n: number }
-    ).n,
-    audit_events: (
-      db.prepare(`SELECT COUNT(*) AS n FROM audit_events`).get() as { n: number }
-    ).n,
-  };
-  console.log(`seeded ${file}`);
-  console.table(counts);
-  db.close();
+  try {
+    await seed(db);
+    const counts = {
+      invoices: (await db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM invoices`))!.n,
+      payments: (await db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM payments`))!.n,
+      journal_entries: (
+        await db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM journal_entries`)
+      )!.n,
+      proposals: (
+        await db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM ledger_proposals`)
+      )!.n,
+      audit_events: (
+        await db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM audit_events`)
+      )!.n,
+    };
+    console.log(`seeded ${file}`);
+    console.table(counts);
+  } finally {
+    await db.close();
+  }
+}
+
+/**
+ * Entry point. Wrapped in main() rather than using top-level await, because
+ * the server builds as CommonJS where top-level await is unavailable.
+ */
+async function main(): Promise<void> {
+  const { loadEnv } = require('./env') as typeof import('./env');
+  loadEnv();
+  await seedToEnv();
 }
 
 if (require.main === module) {
-  seedToFile(process.env.DB_FILE ?? DEFAULT_DB_PATH);
+  void main();
 }

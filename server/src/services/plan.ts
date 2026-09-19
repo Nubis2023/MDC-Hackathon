@@ -4,13 +4,13 @@
  *
  * Everything else in the service is generic:
  *
- *   planOperation()      validates the request against live state and
+ *   await planOperation()      validates the request against live state and
  *                        produces the proposed lines, the affected invoices,
  *                        the balance changes and the supporting records.
  *   posting (ledger.ts)  applies the planned effects and commits one
  *                        transaction.
  *   preview              is the plan rendered for a human.
- *   revalidation         re-runs planOperation() at post time and compares.
+ *   revalidation         re-runs await planOperation() at post time and compares.
  *
  * Because posting re-plans from the original operation rather than trusting
  * the stored preview, a proposal approved on Monday cannot commit stale
@@ -47,7 +47,7 @@
  *                      CR adjustment                 amount
  */
 
-import type { Db } from '../db';
+import type { SqlDb } from '../db';
 import { LedgerError } from '../domain/errors';
 import { buildLines } from '../domain/mappings';
 import type {
@@ -155,6 +155,7 @@ export interface PlanResult {
   auto_amount_cents?: number;
 }
 
+/** Pure validation helper — stays synchronous so a throw propagates directly. */
 function assertPositive(amount: number, label: string): void {
   if (!Number.isInteger(amount) || amount <= 0) {
     throw new LedgerError(
@@ -164,19 +165,19 @@ function assertPositive(amount: number, label: string): void {
   }
 }
 
-function balanceChange(
-  db: Db,
+async function balanceChange(
+  db: SqlDb,
   sellerId: string,
   invoiceId: string,
   appliedCents: number,
   memo: string,
-): {
+): Promise<{
   change: InvoiceBalanceChange;
   supporting: SupportingRecord;
   expectedInvoice: ExpectedState['invoices'][number];
-} {
-  const invoice = requireInvoice(db, sellerId, invoiceId);
-  const derived = deriveInvoiceState(db, invoiceId);
+}>{
+  const invoice = await requireInvoice(db, sellerId, invoiceId);
+  const derived = await deriveInvoiceState(db, invoiceId);
   const change: InvoiceBalanceChange = {
     invoice_id: invoice.id,
     number: invoice.number,
@@ -201,8 +202,8 @@ function balanceChange(
   };
 }
 
-function assemble(
-  db: Db,
+async function assemble(
+  db: SqlDb,
   sellerId: string,
   kind: ProposalKind,
   memo: string,
@@ -218,11 +219,9 @@ function assemble(
    * in order to undo the subledger effect.
    */
   sourceId: string,
-): PlanResult {
-  const built = buildLines(db, sellerId, specs);
-  const seller = db
-    .prepare(`SELECT currency FROM sellers WHERE id = ?`)
-    .get(sellerId) as { currency: string } | undefined;
+): Promise<PlanResult>{
+  const built = await buildLines(db, sellerId, specs);
+  const seller = await db.get(`SELECT currency FROM sellers WHERE id = ?`, [sellerId]) as { currency: string } | undefined;
   if (!seller) {
     throw new LedgerError('not_found', `seller '${sellerId}' not found`);
   }
@@ -252,28 +251,29 @@ function assemble(
   };
 }
 
+/** Pure date helper — no database access, so it stays synchronous. */
 function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
 // ──────────────────────────────── planning ──────────────────────────────
 
-export function planOperation(db: Db, op: OperationInput): PlanResult {
+export async function planOperation(db: SqlDb, op: OperationInput): Promise<PlanResult>{
   switch (op.kind) {
     case 'issue_invoice':
-      return planIssueInvoice(db, op);
+      return await planIssueInvoice(db, op);
     case 'record_payment':
-      return planRecordPayment(db, op);
+      return await planRecordPayment(db, op);
     case 'allocate_payment':
-      return planAllocatePayment(db, op);
+      return await planAllocatePayment(db, op);
     case 'apply_credit_note':
-      return planApplyCreditNote(db, op);
+      return await planApplyCreditNote(db, op);
     case 'record_fee':
-      return planRecordFee(db, op);
+      return await planRecordFee(db, op);
     case 'record_refund':
-      return planRecordRefund(db, op);
+      return await planRecordRefund(db, op);
     case 'post_adjustment':
-      return planPostAdjustment(db, op);
+      return await planPostAdjustment(db, op);
   }
 }
 
@@ -282,19 +282,16 @@ export function planOperation(db: Db, op: OperationInput): PlanResult {
  * for the tax. This is what establishes the receivable that payments later
  * settle, so without it the AR account has nothing but credits in it.
  */
-function planIssueInvoice(db: Db, op: IssueInvoiceInput): PlanResult {
-  const invoice = requireInvoice(db, op.seller_id, op.invoice_id);
+async function planIssueInvoice(db: SqlDb, op: IssueInvoiceInput): Promise<PlanResult>{
+  const invoice = await requireInvoice(db, op.seller_id, op.invoice_id);
 
   // An invoice that already has a posted issuance entry must not be issued
   // twice. The unique source_event_id would catch it anyway; this gives a
   // clearer error.
   const sourceEventId =
     op.source_event_id ?? `invoice_issued:${op.seller_id}:${invoice.id}`;
-  const existing = db
-    .prepare(
-      `SELECT id FROM journal_entries WHERE seller_id = ? AND source_event_id = ?`,
-    )
-    .get(op.seller_id, sourceEventId) as { id: string } | undefined;
+  const existing = await db.get(
+      `SELECT id FROM journal_entries WHERE seller_id = ? AND source_event_id = ?`, [op.seller_id, sourceEventId]) as { id: string } | undefined;
   if (existing) {
     throw new LedgerError(
       'already_posted',
@@ -332,7 +329,7 @@ function planIssueInvoice(db: Db, op: IssueInvoiceInput): PlanResult {
     });
   }
 
-  const result = assemble(
+  const result = await assemble(
     db,
     op.seller_id,
     'issue_invoice',
@@ -361,8 +358,8 @@ function planIssueInvoice(db: Db, op: IssueInvoiceInput): PlanResult {
 }
 
 /** Record a confirmed payment: DR cash, CR unapplied cash. */
-function planRecordPayment(db: Db, op: RecordPaymentInput): PlanResult {
-  assertPositive(op.amount_cents, 'payment amount');
+async function planRecordPayment(db: SqlDb, op: RecordPaymentInput): Promise<PlanResult>{
+  await assertPositive(op.amount_cents, 'payment amount');
   if (!op.received_at) {
     throw new LedgerError('validation', 'received_at is required');
   }
@@ -380,9 +377,7 @@ function planRecordPayment(db: Db, op: RecordPaymentInput): PlanResult {
   // second payment for the same money.
   const paymentId = deterministicId('pay', sourceEventId);
 
-  const existing = db
-    .prepare(`SELECT id FROM payments WHERE id = ?`)
-    .get(paymentId) as { id: string } | undefined;
+  const existing = await db.get(`SELECT id FROM payments WHERE id = ?`, [paymentId]) as { id: string } | undefined;
   if (existing) {
     throw new LedgerError(
       'already_posted',
@@ -405,7 +400,7 @@ function planRecordPayment(db: Db, op: RecordPaymentInput): PlanResult {
     },
   ];
 
-  const result = assemble(
+  const result = await assemble(
     db,
     op.seller_id,
     'record_payment',
@@ -446,11 +441,11 @@ function planRecordPayment(db: Db, op: RecordPaymentInput): PlanResult {
 }
 
 /** Allocate a payment to an invoice: DR unapplied cash, CR AR. */
-function planAllocatePayment(db: Db, op: AllocatePaymentInput): PlanResult {
-  assertPositive(op.amount_cents, 'allocation amount');
+async function planAllocatePayment(db: SqlDb, op: AllocatePaymentInput): Promise<PlanResult>{
+  await assertPositive(op.amount_cents, 'allocation amount');
 
-  const payment = requirePayment(db, op.seller_id, op.payment_id);
-  assertPaymentAllocatable(payment);
+  const payment = await requirePayment(db, op.seller_id, op.payment_id);
+  await assertPaymentAllocatable(payment);
 
   const sourceEventId =
     op.source_event_id ??
@@ -465,9 +460,7 @@ function planAllocatePayment(db: Db, op: AllocatePaymentInput): PlanResult {
   // checking funds first would report a misleading 'insufficient funds'
   // instead of the accurate 'this is a duplicate'.
   const allocationId = deterministicId('alloc', sourceEventId);
-  const existing = db
-    .prepare(`SELECT id FROM payment_allocations WHERE id = ?`)
-    .get(allocationId) as { id: string } | undefined;
+  const existing = await db.get(`SELECT id FROM payment_allocations WHERE id = ?`, [allocationId]) as { id: string } | undefined;
   if (existing) {
     throw new LedgerError(
       'already_posted',
@@ -475,7 +468,7 @@ function planAllocatePayment(db: Db, op: AllocatePaymentInput): PlanResult {
     );
   }
 
-  const available = deriveUnallocatedCents(db, op.payment_id);
+  const available = await deriveUnallocatedCents(db, op.payment_id);
   if (op.amount_cents > available) {
     throw new LedgerError(
       'insufficient_funds',
@@ -484,16 +477,16 @@ function planAllocatePayment(db: Db, op: AllocatePaymentInput): PlanResult {
     );
   }
 
-  const invoice = requireInvoice(db, op.seller_id, op.invoice_id);
+  const invoice = await requireInvoice(db, op.seller_id, op.invoice_id);
   // A void or already-settled invoice must not accept further allocations.
   // Checked against live state here, and re-derived at post time.
-  assertInvoiceAcceptingPayment({
+  await assertInvoiceAcceptingPayment({
     ...invoice,
-    balance_cents: deriveInvoiceState(db, invoice.id).balance_cents,
+    balance_cents: (await deriveInvoiceState(db, invoice.id)).balance_cents,
   } as Parameters<typeof assertInvoiceAcceptingPayment>[0]);
 
   const applied = Math.min(op.amount_cents, invoice.balance_cents);
-  const { change, supporting, expectedInvoice } = balanceChange(
+  const { change, supporting, expectedInvoice } = await balanceChange(
     db,
     op.seller_id,
     op.invoice_id,
@@ -516,12 +509,12 @@ function planAllocatePayment(db: Db, op: AllocatePaymentInput): PlanResult {
     },
   ];
 
-  const result = assemble(
+  const result = await assemble(
     db,
     op.seller_id,
     'allocate_payment',
     `Allocate ${payment.id} to invoice ${invoice.number}`,
-    today(),
+    await today(),
     specs,
     [change],
     [
@@ -556,9 +549,9 @@ function planAllocatePayment(db: Db, op: AllocatePaymentInput): PlanResult {
 }
 
 /** Apply a credit note against an invoice: DR contra-revenue, CR AR. */
-function planApplyCreditNote(db: Db, op: ApplyCreditNoteInput): PlanResult {
-  assertPositive(op.amount_cents, 'credit note amount');
-  const invoice = requireInvoice(db, op.seller_id, op.invoice_id);
+async function planApplyCreditNote(db: SqlDb, op: ApplyCreditNoteInput): Promise<PlanResult>{
+  await assertPositive(op.amount_cents, 'credit note amount');
+  const invoice = await requireInvoice(db, op.seller_id, op.invoice_id);
   if (invoice.status === 'void') {
     throw new LedgerError(
       'validation',
@@ -574,9 +567,7 @@ function planApplyCreditNote(db: Db, op: ApplyCreditNoteInput): PlanResult {
       reason: op.reason ?? null,
     });
   const creditNoteId = deterministicId('cn', sourceEventId);
-  const existing = db
-    .prepare(`SELECT id FROM credit_notes WHERE id = ?`)
-    .get(creditNoteId) as { id: string } | undefined;
+  const existing = await db.get(`SELECT id FROM credit_notes WHERE id = ?`, [creditNoteId]) as { id: string } | undefined;
   if (existing) {
     throw new LedgerError(
       'already_posted',
@@ -584,7 +575,7 @@ function planApplyCreditNote(db: Db, op: ApplyCreditNoteInput): PlanResult {
     );
   }
 
-  const { change, supporting, expectedInvoice } = balanceChange(
+  const { change, supporting, expectedInvoice } = await balanceChange(
     db,
     op.seller_id,
     op.invoice_id,
@@ -607,12 +598,12 @@ function planApplyCreditNote(db: Db, op: ApplyCreditNoteInput): PlanResult {
     },
   ];
 
-  const result = assemble(
+  const result = await assemble(
     db,
     op.seller_id,
     'apply_credit_note',
     `Credit note applied to ${invoice.number}`,
-    today(),
+    await today(),
     specs,
     [change],
     [supporting],
@@ -633,15 +624,15 @@ function planApplyCreditNote(db: Db, op: ApplyCreditNoteInput): PlanResult {
 }
 
 /** Record a processor fee: DR fee expense, CR cash. */
-function planRecordFee(db: Db, op: RecordFeeInput): PlanResult {
-  assertPositive(op.amount_cents, 'fee amount');
+async function planRecordFee(db: SqlDb, op: RecordFeeInput): Promise<PlanResult>{
+  await assertPositive(op.amount_cents, 'fee amount');
   if (!op.description) {
     throw new LedgerError('validation', 'fee description is required');
   }
 
   const supporting: SupportingRecord[] = [];
   if (op.payment_id) {
-    const payment = requirePayment(db, op.seller_id, op.payment_id);
+    const payment = await requirePayment(db, op.seller_id, op.payment_id);
     supporting.push({
       entity_type: 'payment',
       entity_id: payment.id,
@@ -665,9 +656,7 @@ function planRecordFee(db: Db, op: RecordFeeInput): PlanResult {
       description: op.description,
     });
   const feeId = deterministicId('fee', sourceEventId);
-  const existing = db
-    .prepare(`SELECT id FROM fees WHERE id = ?`)
-    .get(feeId) as { id: string } | undefined;
+  const existing = await db.get(`SELECT id FROM fees WHERE id = ?`, [feeId]) as { id: string } | undefined;
   if (existing) {
     throw new LedgerError(
       'already_posted',
@@ -690,12 +679,12 @@ function planRecordFee(db: Db, op: RecordFeeInput): PlanResult {
     },
   ];
 
-  const result = assemble(
+  const result = await assemble(
     db,
     op.seller_id,
     'record_fee',
     `Fee — ${op.description}`,
-    today(),
+    await today(),
     specs,
     [],
     supporting,
@@ -716,9 +705,9 @@ function planRecordFee(db: Db, op: RecordFeeInput): PlanResult {
 }
 
 /** Record a refund: DR refund expense, CR cash. */
-function planRecordRefund(db: Db, op: RecordRefundInput): PlanResult {
-  assertPositive(op.amount_cents, 'refund amount');
-  const payment = requirePayment(db, op.seller_id, op.payment_id);
+async function planRecordRefund(db: SqlDb, op: RecordRefundInput): Promise<PlanResult>{
+  await assertPositive(op.amount_cents, 'refund amount');
+  const payment = await requirePayment(db, op.seller_id, op.payment_id);
 
   const affected: InvoiceBalanceChange[] = [];
   const supporting: SupportingRecord[] = [
@@ -734,7 +723,7 @@ function planRecordRefund(db: Db, op: RecordRefundInput): PlanResult {
   if (op.invoice_id) {
     // A refund tied to an invoice puts the balance back up, so the reminder
     // recheck downstream will reinstate that invoice's reminders.
-    const { change, supporting: s, expectedInvoice } = balanceChange(
+    const { change, supporting: s, expectedInvoice } = await balanceChange(
       db,
       op.seller_id,
       op.invoice_id,
@@ -755,9 +744,7 @@ function planRecordRefund(db: Db, op: RecordRefundInput): PlanResult {
       reason: op.reason ?? null,
     });
   const refundId = deterministicId('ref', sourceEventId);
-  const existing = db
-    .prepare(`SELECT id FROM refunds WHERE id = ?`)
-    .get(refundId) as { id: string } | undefined;
+  const existing = await db.get(`SELECT id FROM refunds WHERE id = ?`, [refundId]) as { id: string } | undefined;
   if (existing) {
     throw new LedgerError(
       'already_posted',
@@ -780,12 +767,12 @@ function planRecordRefund(db: Db, op: RecordRefundInput): PlanResult {
     },
   ];
 
-  const result = assemble(
+  const result = await assemble(
     db,
     op.seller_id,
     'record_refund',
     `Refund — ${op.reason ?? 'customer refund'}`,
-    today(),
+    await today(),
     specs,
     affected,
     supporting,
@@ -815,10 +802,8 @@ function planRecordRefund(db: Db, op: RecordRefundInput): PlanResult {
  * that is not approved — so there is no path that posts an adjustment nobody
  * signed off on.
  */
-function planPostAdjustment(db: Db, op: PostAdjustmentInput): PlanResult {
-  const adjustment = db
-    .prepare(`SELECT * FROM adjustments WHERE id = ? AND seller_id = ?`)
-    .get(op.adjustment_id, op.seller_id) as
+async function planPostAdjustment(db: SqlDb, op: PostAdjustmentInput): Promise<PlanResult>{
+  const adjustment = await db.get(`SELECT * FROM adjustments WHERE id = ? AND seller_id = ?`, [op.adjustment_id, op.seller_id]) as
     | {
         id: string;
         seller_id: string;
@@ -880,7 +865,7 @@ function planPostAdjustment(db: Db, op: PostAdjustmentInput): PlanResult {
       adjustment.direction === 'debit'
         ? adjustment.amount_cents
         : -adjustment.amount_cents;
-    const { change, supporting: s, expectedInvoice } = balanceChange(
+    const { change, supporting: s, expectedInvoice } = await balanceChange(
       db,
       op.seller_id,
       adjustment.invoice_id,
@@ -923,12 +908,12 @@ function planPostAdjustment(db: Db, op: PostAdjustmentInput): PlanResult {
           },
         ];
 
-  const result = assemble(
+  const result = await assemble(
     db,
     op.seller_id,
     'post_adjustment',
     `Adjustment — ${adjustment.memo}`,
-    today(),
+    await today(),
     specs,
     affected,
     supporting,
@@ -956,24 +941,21 @@ function planPostAdjustment(db: Db, op: PostAdjustmentInput): PlanResult {
  * updated except to flip its status to 'reversed', which the schema permits
  * and which is what excludes its effects from every derived balance.
  */
-export function planReversal(
-  db: Db,
+export async function planReversal(
+  db: SqlDb,
   sellerId: string,
   entryId: string,
-): {
+): Promise<{
   lines: Array<{ account_id: string; side: 'debit' | 'credit'; amount_cents: number }>;
   source_event_id: string;
   source_id: string;
   memo: string;
   entry_date: string;
   reversal_of: string;
-} {
-  const entry = db
-    .prepare(
+}>{
+  const entry = await db.get(
       `SELECT id, entry_no, memo, status, entry_kind, source_type, source_id
-         FROM journal_entries WHERE id = ? AND seller_id = ?`,
-    )
-    .get(entryId, sellerId) as
+         FROM journal_entries WHERE id = ? AND seller_id = ?`, [entryId, sellerId]) as
     | {
         id: string;
         entry_no: number;
@@ -1008,12 +990,9 @@ export function planReversal(
     );
   }
 
-  const lines = db
-    .prepare(
+  const lines = await db.all(
       `SELECT account_id, amount_cents FROM journal_lines
-        WHERE entry_id = ? ORDER BY line_no`,
-    )
-    .all(entryId) as Array<{ account_id: string; amount_cents: number }>;
+        WHERE entry_id = ? ORDER BY line_no`, [entryId]) as Array<{ account_id: string; amount_cents: number }>;
 
   return {
     lines: lines.map((l) => ({
@@ -1024,7 +1003,7 @@ export function planReversal(
     source_event_id: `reversal:${sellerId}:${entryId}`,
     source_id: entryId,
     memo: `Reversal of entry ${entry.entry_no} — ${entry.memo}`,
-    entry_date: today(),
+    entry_date: await today(),
     reversal_of: entryId,
   };
 }

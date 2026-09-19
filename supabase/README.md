@@ -9,9 +9,9 @@ verify-migration.mjs                          runs + tests it against real Postg
 
 ## Status
 
-The **migration is written and verified**. The **Node service layer is still
-SQLite-backed** — see "Porting the service layer" below for what that means
-and what remains.
+The **migration is written, applied, and verified**. The **service layer is
+ported** and runs against either SQLite or Postgres — see "The service layer
+port" below.
 
 ## Apply the migration
 
@@ -150,42 +150,90 @@ reaches PostgREST without going through the backend.
 `ledger_is_seller_member()` or `ledger_has_seller_role()`. A user with no
 `users` row, or with no membership of a seller, sees nothing.
 
-## Porting the service layer
+## The service layer port
 
-The schema is done and verified; the backend is not yet ported.
-`server/src/db/index.ts` uses `better-sqlite3`, which is **synchronous**.
-Postgres via `postgres-js` or `@supabase/supabase-js` is **asynchronous**, so
-the port is not a driver swap:
+**Done.** The backend runs on either backend, chosen by connection string:
 
-1. **Every service function becomes async**, and so does every caller up
-   through `api.ts`. `services/plan.ts` and `services/ledger.ts` are the bulk
-   of it.
-2. **The posting transaction changes shape.** `better-sqlite3` gives a
-   synchronous `IMMEDIATE` transaction wrapping straight-line code. Postgres
-   needs `sql.begin(async (tx) => …)`, and every statement inside must be
-   issued on `tx`, not on the pool. Getting this wrong is exactly the bug the
-   atomicity tests exist to catch.
-3. **Type conversions.** `bigint` comes back as a string from some drivers —
-   note the view already returns `expected_balance_cents` as `"50000"`. The
-   `parseAmountToCents`/`formatCents` helpers in `server/src/domain/money.ts`
-   should own that boundary so cents never arrive as a string in domain code.
-4. **Dates.** SQLite stores ISO text; Postgres `date`/`timestamptz` return
-   `Date` objects. `entry_date` and `due_date` are `date` columns here.
-5. **`datetime('now')` defaults are gone** — replaced with `now()`.
+| | |
+| --- | --- |
+| `SUPABASE_DB_URL` set | Postgres (Supabase) |
+| unset | SQLite at `DB_FILE` (tests, local dev) |
 
-The 128 existing tests are the safety net for this port: they drive the
-service layer through its public functions, so most of them should need only
-an async/await lift and a Postgres test database.
+The service layer targets a small async interface (`server/src/db/sql-db.ts`)
+with one implementation per backend, so no service code knows which database it
+is talking to. `openDatabaseFromEnv()` in `server/src/db/index.ts` is the
+switch.
+
+Five things had to be handled, and each is a place where a naive port would
+have silently corrupted data rather than failed:
+
+1. **Every service function is async.** ~70 functions across 15 files, plus
+   every caller up through `api.ts`.
+2. **Transactions are bound.** On Postgres a statement issued on the pool
+   instead of the transaction connection commits *independently* — so a
+   rollback would not undo it. That is the exact guarantee the posting pipeline
+   exists to provide. With a single-connection pool it is worse than a
+   correctness bug: it deadlocks. `SqliteDb.transaction` passes `this` as the
+   handle, so `db` and `tx` were the same object and SQLite hid the bug
+   entirely.
+3. **`numeric` as well as `bigint`.** Every money column is `bigint`, but
+   `SUM()` over a `bigint` returns **`numeric`**, which postgres-js returns as
+   a *string*. `0 + "0"` is `"0000"`, so every derived balance/status
+   comparison took the wrong branch. `COUNT(*)` is `int8` and worked, which is
+   what made this look like a status bug rather than a type bug. Both OIDs are
+   parsed to `Number` in `postgres-db.ts`.
+4. **Dates.** Postgres returns `date` columns as `Date` objects; SQLite returns
+   ISO text. Domain code builds dates from those strings, so a `Date` object
+   produced `Invalid Date`. The driver layer normalises them back to
+   `YYYY-MM-DD`.
+5. **Prepared statements are disabled** (`prepare: false`). postgres-js caches
+   server-side prepared statements per connection by default, which breaks
+   wherever the session is not stable — Supabase's connection pooler
+   (Supavisor, transaction mode), and PGlite's socket server. The symptom is
+   `unnamed prepared statement does not exist` (SQLSTATE 26000).
+
+### Verifying it
+
+```bash
+npm test                     # 145 tests, in-memory SQLite, ~300ms
+npm run test:postgres        # service layer against real Postgres (34 checks)
+npm run test:postgres-http   # full HTTP API against real Postgres (29 checks)
+```
+
+Both Postgres suites start a real Postgres — PGlite behind
+`PGLiteSocketServer`, which speaks the wire protocol — apply this migration,
+and run against it. `test:postgres-http` boots the actual compiled server
+(`dist/index.js`) with `SUPABASE_DB_URL` pointing at it and drives the HTTP
+endpoints, so env loading, backend selection, the Express routes and the
+dialect layer are all exercised together.
+
+They deliberately do **not** target a live Supabase project: the tests write
+data, and doing that against a real project would pollute it. PGlite is
+Postgres, so the dialect behaviour is identical.
+
+### Pool note
+
+`SUPABASE_DB_POOL_MAX` controls the connection pool (default 10). It exists
+because PGlite's socket implementation does not isolate session state across
+concurrent connections, so the verification harness pins it to 1. Real
+Postgres, including a Supabase project, needs no such setting.
 
 ## Environment
 
-See `.env.example` in the repo root. The backend needs:
+See `.env.example` in the repo root. The server loads `.env` at startup via
+Node's `process.loadEnvFile` (no dotenv dependency); real environment variables
+take precedence, so CI and hosted environments are unaffected.
+
+To point the backend at Postgres, one variable is needed:
 
 ```
-SUPABASE_URL=https://<project-ref>.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=<service role key — server-side only, never in a browser>
+SUPABASE_DB_URL=postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres
 ```
 
-The service role key bypasses RLS. It must never be exposed to the frontend or
-committed; the frontend should use the publishable/anon key with a user JWT if
-it ever talks to Supabase directly.
+Use the **direct** connection (port 5432). The connection pooler works too —
+`prepare: false` is set precisely so it does — but the direct connection avoids
+the pooler's transaction-mode caveats entirely.
+
+The service role key is **not** needed to run the backend: it authenticates
+against the Supabase API, whereas this service talks to Postgres directly. It
+bypasses RLS, so if you do use it, keep it server-side and never commit it.

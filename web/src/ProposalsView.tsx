@@ -22,6 +22,13 @@ import {
 import { EntryPreview } from './EntryPreview';
 import { Badge, Empty, ErrorBanner, OkBanner, Panel, ProposalStatus } from './ui';
 
+/** Today as YYYY-MM-DD, optionally offset by N days. */
+function todayIso(offsetDays = 0): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  return d.toISOString().slice(0, 10);
+}
+
 interface Props {
   sellerId: string;
   actorId: string;
@@ -32,6 +39,7 @@ interface Props {
 }
 
 type OperationKind =
+  | 'issue_invoice'
   | 'record_payment'
   | 'allocate_payment'
   | 'apply_credit_note'
@@ -66,6 +74,18 @@ export function ProposalsView({
   const [preview, setPreview] = useState<LedgerPreview | null>(null);
   const [rejectReason, setRejectReason] = useState('Not authorised');
 
+  // Place-an-invoice form. Kept separate from the ledger-operation form
+  // because creating the document and posting its receivable are two distinct
+  // steps: this one writes the subledger row, the other puts it on the books
+  // behind an approval.
+  const [invCustomer, setInvCustomer] = useState('Harbor Logistics');
+  const [invNumber, setInvNumber] = useState(`INV-${new Date().getFullYear()}-001`);
+  const [invIssueDate, setInvIssueDate] = useState(todayIso());
+  const [invDueDate, setInvDueDate] = useState(todayIso(30));
+  const [invNet, setInvNet] = useState('1250.00');
+  const [invTax, setInvTax] = useState('100.00');
+  const [createdInvoice, setCreatedInvoice] = useState<Invoice | null>(null);
+
   const refresh = useCallback(async () => {
     try {
       const [p, inv, pay] = await Promise.all([
@@ -87,6 +107,12 @@ export function ProposalsView({
   }, [refresh]);
 
   const buildOperation = (): Record<string, unknown> => {
+    // Issuing an invoice carries no amount: the entry is derived from the
+    // invoice record itself (total = subtotal + tax), so the figure is read
+    // from the document rather than re-entered here.
+    if (kind === 'issue_invoice') {
+      return { kind, invoice_id: invoiceId };
+    }
     const cents = parseMoney(amount);
     switch (kind) {
       case 'record_payment':
@@ -142,6 +168,34 @@ export function ProposalsView({
     run(async () => {
       const res = await api.preview(sellerId, buildOperation());
       setPreview(res.preview);
+    });
+
+  /**
+   * Place the invoice document only. Posting its receivable to the ledger is
+   * a separate, approvable step — the button below raises that proposal with
+   * the created invoice preselected.
+   */
+  const doCreateInvoice = () =>
+    run(async () => {
+      const res = await api.createInvoice(sellerId, {
+        customer_name: invCustomer,
+        number: invNumber,
+        issue_date: invIssueDate,
+        due_date: invDueDate,
+        subtotal_cents: parseMoney(invNet),
+        tax_cents: parseMoney(invTax || '0'),
+      });
+      setCreatedInvoice(res.invoice);
+      // Preselect it and switch the operation, so the next click is the
+      // ledger posting rather than a manual re-selection.
+      setInvoiceId(res.invoice.id);
+      setKind('issue_invoice');
+      setPreview(null);
+      setOk(
+        `Invoice ${res.invoice.number} created for ${res.invoice.customer_name}. ` +
+          'It is not on the ledger yet — raise the issue_invoice proposal below to post it.',
+      );
+      await refresh();
     });
 
   const doPropose = () =>
@@ -222,6 +276,77 @@ export function ProposalsView({
       {ok ? <OkBanner>{ok}</OkBanner> : null}
 
       <Panel
+        title="Place an invoice"
+        hint="Creates the invoice document and schedules its reminders. This does not touch the ledger — posting the receivable is the separate, approvable step below, so the accounting entry stays reviewable."
+      >
+        <div className="row">
+          <div className="col">
+            <label className="small muted">Customer</label>
+            <input
+              value={invCustomer}
+              onChange={(e) => setInvCustomer(e.target.value)}
+              placeholder="Harbor Logistics"
+            />
+          </div>
+          <div className="col">
+            <label className="small muted">Invoice number</label>
+            <input value={invNumber} onChange={(e) => setInvNumber(e.target.value)} />
+          </div>
+          <div className="col">
+            <label className="small muted">Issue date</label>
+            <input
+              type="date"
+              value={invIssueDate}
+              onChange={(e) => setInvIssueDate(e.target.value)}
+            />
+          </div>
+          <div className="col">
+            <label className="small muted">Due date</label>
+            <input
+              type="date"
+              value={invDueDate}
+              onChange={(e) => setInvDueDate(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="row" style={{ marginTop: 10 }}>
+          <div className="col">
+            <label className="small muted">Net (before tax)</label>
+            <input value={invNet} onChange={(e) => setInvNet(e.target.value)} placeholder="1250.00" />
+          </div>
+          <div className="col">
+            <label className="small muted">Tax</label>
+            <input value={invTax} onChange={(e) => setInvTax(e.target.value)} placeholder="100.00" />
+          </div>
+          <div className="col">
+            <label className="small muted">Total</label>
+            <input
+              value={(() => {
+                try {
+                  return money(parseMoney(invNet || '0') + parseMoney(invTax || '0'), currency);
+                } catch {
+                  return '—';
+                }
+              })()}
+              readOnly
+            />
+          </div>
+        </div>
+
+        <div className="inline" style={{ marginTop: 14 }}>
+          <button className="primary" onClick={doCreateInvoice} disabled={busy}>
+            Create invoice
+          </button>
+          {createdInvoice ? (
+            <span className="muted small">
+              Created {createdInvoice.number} — now raise the issue proposal below to post it.
+            </span>
+          ) : null}
+        </div>
+      </Panel>
+
+      <Panel
         title="Create a ledger update"
         hint="Preview shows the proposed debits and credits, the affected invoices and their balance changes, and the source records — before anything is written."
       >
@@ -235,6 +360,7 @@ export function ProposalsView({
                 setPreview(null);
               }}
             >
+              <option value="issue_invoice">Issue an invoice to the ledger</option>
               <option value="record_payment">Record a confirmed payment</option>
               <option value="allocate_payment">Allocate a payment to an invoice</option>
               <option value="apply_credit_note">Apply a credit note</option>
@@ -243,10 +369,12 @@ export function ProposalsView({
             </select>
           </div>
 
-          <div className="col">
-            <label className="small muted">Amount (USD)</label>
-            <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="1250.00" />
-          </div>
+          {kind !== 'issue_invoice' && (
+            <div className="col">
+              <label className="small muted">Amount (USD)</label>
+              <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="1250.00" />
+            </div>
+          )}
 
           {(kind === 'allocate_payment' || kind === 'record_fee' || kind === 'record_refund') && (
             <div className="col">
@@ -263,7 +391,7 @@ export function ProposalsView({
             </div>
           )}
 
-          {(kind === 'allocate_payment' || kind === 'apply_credit_note' || kind === 'record_refund') && (
+          {(kind === 'issue_invoice' || kind === 'allocate_payment' || kind === 'apply_credit_note' || kind === 'record_refund') && (
             <div className="col">
               <label className="small muted">Invoice</label>
               <select value={invoiceId} onChange={(e) => setInvoiceId(e.target.value)}>

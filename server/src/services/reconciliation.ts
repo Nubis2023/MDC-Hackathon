@@ -16,7 +16,7 @@
  * the same propose/approve/post path as any other ledger write.
  */
 
-import type { Db } from '../db';
+import type { SqlDb } from '../db';
 import type { InvoiceRecord, ReconciliationRow } from '../domain/types';
 
 export interface ReconciliationSummary {
@@ -48,34 +48,28 @@ export interface DriftItem {
  * One row per invoice: its stored balance, its allocated total, and whether
  * the two agree. This is the primary working view of the interface.
  */
-export function reconcileInvoices(
-  db: Db,
+export async function reconcileInvoices(
+  db: SqlDb,
   sellerId: string,
-): ReconciliationRow[] {
-  const invoices = db
-    .prepare(
-      `SELECT * FROM invoices WHERE seller_id = ? ORDER BY due_date, number`,
-    )
-    .all(sellerId) as InvoiceRecord[];
+): Promise<ReconciliationRow[]>{
+  const invoices = await db.all(
+      `SELECT * FROM invoices WHERE seller_id = ? ORDER BY due_date, number`, [sellerId]) as InvoiceRecord[];
 
-  return invoices.map((invoice) => buildReconciliationRow(db, invoice));
+  return Promise.all(invoices.map((invoice) => buildReconciliationRow(db, invoice)));
 }
 
-export function buildReconciliationRow(
-  db: Db,
+export async function buildReconciliationRow(
+  db: SqlDb,
   invoice: InvoiceRecord,
-): ReconciliationRow {
-  const allocations = db
-    .prepare(
+): Promise<ReconciliationRow>{
+  const allocations = await db.all(
       `SELECT a.id AS allocation_id, a.payment_id, a.amount_cents, a.status,
               a.created_at AS allocated_at, a.journal_entry_id,
               p.reference AS payment_reference
          FROM payment_allocations a
          LEFT JOIN payments p ON p.id = a.payment_id
         WHERE a.invoice_id = ?
-        ORDER BY a.created_at, a.rowid`,
-    )
-    .all(invoice.id) as Array<{
+        ORDER BY a.created_at, a.id`, [invoice.id]) as Array<{
     allocation_id: string;
     payment_id: string;
     amount_cents: number;
@@ -85,28 +79,19 @@ export function buildReconciliationRow(
     payment_reference: string | null;
   }>;
 
-  const credits = db
-    .prepare(
+  const credits = await db.get(
       `SELECT COALESCE(SUM(amount_cents), 0) AS total FROM credit_notes
-        WHERE invoice_id = ? AND status = 'applied'`,
-    )
-    .get(invoice.id) as { total: number };
+        WHERE invoice_id = ? AND status = 'applied'`, [invoice.id]) as { total: number };
 
-  const adjustments = db
-    .prepare(
+  const adjustments = await db.get(
       `SELECT
          COALESCE(SUM(CASE WHEN direction='debit' THEN amount_cents ELSE 0 END),0) AS debits,
          COALESCE(SUM(CASE WHEN direction='credit' THEN amount_cents ELSE 0 END),0) AS credits
-       FROM adjustments WHERE invoice_id = ? AND status = 'posted'`,
-    )
-    .get(invoice.id) as { debits: number; credits: number };
+       FROM adjustments WHERE invoice_id = ? AND status = 'posted'`, [invoice.id]) as { debits: number; credits: number };
 
-  const refunds = db
-    .prepare(
+  const refunds = await db.get(
       `SELECT COALESCE(SUM(amount_cents), 0) AS total FROM refunds
-        WHERE invoice_id = ? AND status = 'refunded'`,
-    )
-    .get(invoice.id) as { total: number };
+        WHERE invoice_id = ? AND status = 'refunded'`, [invoice.id]) as { total: number };
 
   const activeAllocated = allocations
     .filter((a) => a.status === 'active')
@@ -122,12 +107,9 @@ export function buildReconciliationRow(
     adjustments.credits +
     refunds.total;
 
-  const reminders = db
-    .prepare(
+  const reminders = await db.all(
       `SELECT id, kind, status, scheduled_for, suppressed_reason
-         FROM reminders WHERE invoice_id = ? ORDER BY scheduled_for`,
-    )
-    .all(invoice.id) as ReconciliationRow['reminders'];
+         FROM reminders WHERE invoice_id = ? ORDER BY scheduled_for`, [invoice.id]) as ReconciliationRow['reminders'];
 
   const drift = invoice.balance_cents - expectedBalance;
 
@@ -146,11 +128,11 @@ export function buildReconciliationRow(
  * Full reconciliation for a seller: invoice rows plus payment-level and
  * trial-balance checks.
  */
-export function reconcileSeller(db: Db, sellerId: string): {
+export async function reconcileSeller(db: SqlDb, sellerId: string): Promise<{
   summary: ReconciliationSummary;
   rows: ReconciliationRow[];
-} {
-  const rows = reconcileInvoices(db, sellerId);
+}>{
+  const rows = await reconcileInvoices(db, sellerId);
   const asOf = new Date().toISOString();
   const drift: DriftItem[] = [];
 
@@ -186,12 +168,9 @@ export function reconcileSeller(db: Db, sellerId: string): {
   }
 
   // ── Payment-level drift ───────────────────────────────────────────────
-  const payments = db
-    .prepare(
+  const payments = await db.all(
       `SELECT id, amount_cents, unallocated_cents, status FROM payments
-        WHERE seller_id = ?`,
-    )
-    .all(sellerId) as Array<{
+        WHERE seller_id = ?`, [sellerId]) as Array<{
     id: string;
     amount_cents: number;
     unallocated_cents: number;
@@ -199,12 +178,9 @@ export function reconcileSeller(db: Db, sellerId: string): {
   }>;
 
   for (const payment of payments) {
-    const allocated = db
-      .prepare(
+    const allocated = await db.get(
         `SELECT COALESCE(SUM(amount_cents), 0) AS total FROM payment_allocations
-          WHERE payment_id = ? AND status = 'active'`,
-      )
-      .get(payment.id) as { total: number };
+          WHERE payment_id = ? AND status = 'active'`, [payment.id]) as { total: number };
     const derived = payment.amount_cents - allocated.total;
     if (derived !== payment.unallocated_cents) {
       drift.push({
@@ -225,14 +201,11 @@ export function reconcileSeller(db: Db, sellerId: string): {
   // Every posted entry balances by construction, so the whole ledger must sum
   // to zero across all accounts. A non-zero total means lines were written
   // outside the entry pipeline.
-  const trial = db
-    .prepare(
+  const trial = await db.get(
       `SELECT COALESCE(SUM(l.amount_cents), 0) AS total
          FROM journal_lines l
          JOIN journal_entries e ON e.id = l.entry_id
-        WHERE e.seller_id = ? AND e.status = 'posted'`,
-    )
-    .get(sellerId) as { total: number };
+        WHERE e.seller_id = ? AND e.status = 'posted'`, [sellerId]) as { total: number };
 
   if (trial.total !== 0) {
     drift.push({
@@ -247,16 +220,11 @@ export function reconcileSeller(db: Db, sellerId: string): {
     });
   }
 
-  const unapplied = db
-    .prepare(
+  const unapplied = await db.get(
       `SELECT COALESCE(SUM(unallocated_cents), 0) AS total FROM payments
-        WHERE seller_id = ? AND status = 'confirmed'`,
-    )
-    .get(sellerId) as { total: number };
+        WHERE seller_id = ? AND status = 'confirmed'`, [sellerId]) as { total: number };
 
-  const seller = db
-    .prepare(`SELECT authoritative_system FROM sellers WHERE id = ?`)
-    .get(sellerId) as { authoritative_system: 'local' | 'external' };
+  const seller = await db.get(`SELECT authoritative_system FROM sellers WHERE id = ?`, [sellerId]) as { authoritative_system: 'local' | 'external' };
 
   const summary: ReconciliationSummary = {
     seller_id: sellerId,
@@ -284,9 +252,8 @@ export function reconcileSeller(db: Db, sellerId: string): {
  * Reversed entries drop out because their status is no longer 'posted', which
  * is the same mechanism that removes their effect from invoice balances.
  */
-export function accountBalances(db: Db, sellerId: string) {
-  return db
-    .prepare(
+export async function accountBalances(db: SqlDb, sellerId: string) {
+  return await db.all(
       `SELECT a.id AS account_id, a.code, a.name, a.type,
               COALESCE(SUM(l.amount_cents), 0) AS net_cents,
               COALESCE(SUM(CASE WHEN l.amount_cents > 0 THEN l.amount_cents ELSE 0 END), 0) AS debit_cents,
@@ -296,10 +263,13 @@ export function accountBalances(db: Db, sellerId: string) {
          LEFT JOIN journal_lines l ON l.account_id = a.id AND l.seller_id = a.seller_id
          LEFT JOIN journal_entries e ON e.id = l.entry_id AND e.status = 'posted'
         WHERE a.seller_id = ?
-        GROUP BY a.id
-        ORDER BY a.code`,
-    )
-    .all(sellerId) as Array<{
+        -- Every non-aggregated column is listed. SQLite accepts grouping by a
+        -- bare id and picking the rest up from the row, but Postgres rejects
+        -- that ("column must appear in the GROUP BY clause") unless the
+        -- grouping covers the table's full primary key — and this key is
+        -- composite, (seller_id, id). Listing them all works on both backends.
+        GROUP BY a.seller_id, a.id, a.code, a.name, a.type
+        ORDER BY a.code`, [sellerId]) as Array<{
     account_id: string;
     code: string;
     name: string;

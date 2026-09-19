@@ -1,6 +1,6 @@
 /** Payment reads and allocation bookkeeping. */
 
-import type { Db } from '../db';
+import type { SqlDb } from '../db';
 import { LedgerError } from '../domain/errors';
 import type { PaymentRecord } from '../domain/types';
 
@@ -14,57 +14,46 @@ export interface PaymentAllocationRecord {
   created_at: string;
 }
 
-export function getPayment(db: Db, paymentId: string): PaymentRecord | null {
-  const row = db
-    .prepare(`SELECT * FROM payments WHERE id = ?`)
-    .get(paymentId) as PaymentRecord | undefined;
+export async function getPayment(db: SqlDb, paymentId: string): Promise<PaymentRecord | null>{
+  const row = await db.get(`SELECT * FROM payments WHERE id = ?`, [paymentId]) as PaymentRecord | undefined;
   return row ?? null;
 }
 
-export function requirePayment(
-  db: Db,
+export async function requirePayment(
+  db: SqlDb,
   sellerId: string,
   paymentId: string,
-): PaymentRecord {
-  const payment = getPayment(db, paymentId);
+): Promise<PaymentRecord>{
+  const payment = await getPayment(db, paymentId);
   if (!payment || payment.seller_id !== sellerId) {
     throw new LedgerError('not_found', `payment '${paymentId}' not found`);
   }
   return payment;
 }
 
-export function listPayments(db: Db, sellerId: string, limit = 200): PaymentRecord[] {
-  return db
-    .prepare(
+export async function listPayments(db: SqlDb, sellerId: string, limit = 200): Promise<PaymentRecord[]>{
+  return await db.all(
       `SELECT * FROM payments WHERE seller_id = ?
-        ORDER BY received_at DESC, rowid DESC LIMIT ?`,
-    )
-    .all(sellerId, limit) as PaymentRecord[];
+        ORDER BY received_at DESC, id DESC LIMIT ?`, [sellerId, limit]) as PaymentRecord[];
 }
 
-export function listAllocationsForInvoice(
-  db: Db,
+export async function listAllocationsForInvoice(
+  db: SqlDb,
   invoiceId: string,
-): PaymentAllocationRecord[] {
-  return db
-    .prepare(
+): Promise<PaymentAllocationRecord[]>{
+  return await db.all(
       `SELECT * FROM payment_allocations WHERE invoice_id = ?
-        ORDER BY created_at, rowid`,
-    )
-    .all(invoiceId) as PaymentAllocationRecord[];
+        ORDER BY created_at, id`, [invoiceId]) as PaymentAllocationRecord[];
 }
 
-export function getActiveAllocations(
-  db: Db,
+export async function getActiveAllocations(
+  db: SqlDb,
   paymentId: string,
-): PaymentAllocationRecord[] {
-  return db
-    .prepare(
+): Promise<PaymentAllocationRecord[]>{
+  return await db.all(
       `SELECT * FROM payment_allocations
         WHERE payment_id = ? AND status = 'active'
-        ORDER BY created_at, rowid`,
-    )
-    .all(paymentId) as PaymentAllocationRecord[];
+        ORDER BY created_at, id`, [paymentId]) as PaymentAllocationRecord[];
 }
 
 /**
@@ -72,18 +61,15 @@ export function getActiveAllocations(
  * active allocations rather than trusting `unallocated_cents`. Both are
  * checked against each other by the reconciliation interface.
  */
-export function deriveUnallocatedCents(db: Db, paymentId: string): number {
-  const payment = getPayment(db, paymentId);
+export async function deriveUnallocatedCents(db: SqlDb, paymentId: string): Promise<number>{
+  const payment = await getPayment(db, paymentId);
   if (!payment) {
     throw new LedgerError('not_found', `payment '${paymentId}' not found`);
   }
-  const row = db
-    .prepare(
+  const row = await db.get(
       `SELECT COALESCE(SUM(amount_cents), 0) AS total
          FROM payment_allocations
-        WHERE payment_id = ? AND status = 'active'`,
-    )
-    .get(paymentId) as { total: number };
+        WHERE payment_id = ? AND status = 'active'`, [paymentId]) as { total: number };
   return payment.amount_cents - row.total;
 }
 
@@ -91,20 +77,17 @@ export function deriveUnallocatedCents(db: Db, paymentId: string): number {
  * Recompute a payment's cached unallocated amount from its active
  * allocations and bump the version. Must run inside the caller's transaction.
  */
-export function recomputePaymentUnallocated(db: Db, paymentId: string): number {
-  const unallocated = deriveUnallocatedCents(db, paymentId);
-  const info = db
-    .prepare(
-      `UPDATE payments SET unallocated_cents = ?, version = version + 1 WHERE id = ?`,
-    )
-    .run(unallocated, paymentId);
+export async function recomputePaymentUnallocated(db: SqlDb, paymentId: string): Promise<number>{
+  const unallocated = await deriveUnallocatedCents(db, paymentId);
+  const info = await db.run(
+      `UPDATE payments SET unallocated_cents = ?, version = version + 1 WHERE id = ?`, [unallocated, paymentId]);
   if (info.changes === 0) {
     throw new LedgerError('not_found', `payment '${paymentId}' not found`);
   }
   return unallocated;
 }
 
-export function assertPaymentAllocatable(payment: PaymentRecord): void {
+export async function assertPaymentAllocatable(payment: PaymentRecord): Promise<void>{
   if (payment.status !== 'confirmed') {
     throw new LedgerError(
       'conflict',
@@ -114,13 +97,11 @@ export function assertPaymentAllocatable(payment: PaymentRecord): void {
 }
 
 /** Allocations created by a given journal entry, for reversal. */
-export function allocationsForEntry(
-  db: Db,
+export async function allocationsForEntry(
+  db: SqlDb,
   entrySourceId: string,
-): PaymentAllocationRecord[] {
+): Promise<PaymentAllocationRecord[]>{
   // Allocation postings carry the allocation id as their source_id, so this
   // resolves an entry back to the row it created.
-  return db
-    .prepare(`SELECT * FROM payment_allocations WHERE id = ?`)
-    .all(entrySourceId) as PaymentAllocationRecord[];
+  return await db.all(`SELECT * FROM payment_allocations WHERE id = ?`, [entrySourceId]) as PaymentAllocationRecord[];
 }

@@ -8,7 +8,7 @@
  * 'suppressed' with a reason, and the state is visible in the UI.
  */
 
-import type { Db } from '../db';
+import type { SqlDb } from '../db';
 import type { InvoiceRecord } from '../domain/types';
 
 export interface ReminderRecord {
@@ -21,33 +21,27 @@ export interface ReminderRecord {
   suppressed_reason: string | null;
 }
 
-export function listRemindersForInvoice(
-  db: Db,
+export async function listRemindersForInvoice(
+  db: SqlDb,
   invoiceId: string,
-): ReminderRecord[] {
-  return db
-    .prepare(
+): Promise<ReminderRecord[]>{
+  return await db.all(
       `SELECT * FROM reminders WHERE invoice_id = ?
-        ORDER BY scheduled_for, rowid`,
-    )
-    .all(invoiceId) as ReminderRecord[];
+        ORDER BY scheduled_for, id`, [invoiceId]) as ReminderRecord[];
 }
 
-export function listReminders(
-  db: Db,
+export async function listReminders(
+  db: SqlDb,
   sellerId: string,
   limit = 200,
-): Array<ReminderRecord & { invoice_number: string; customer_name: string }> {
-  return db
-    .prepare(
+): Promise<Array<ReminderRecord & { invoice_number: string; customer_name: string }>>{
+  return await db.all(
       `SELECT r.*, i.number AS invoice_number, i.customer_name
          FROM reminders r
          JOIN invoices i ON i.id = r.invoice_id
         WHERE r.seller_id = ?
-        ORDER BY r.scheduled_for DESC, r.rowid DESC
-        LIMIT ?`,
-    )
-    .all(sellerId, limit) as Array<
+        ORDER BY r.scheduled_for DESC, r.id DESC
+        LIMIT ?`, [sellerId, limit]) as Array<
     ReminderRecord & { invoice_number: string; customer_name: string }
   >;
 }
@@ -67,27 +61,21 @@ export interface ReminderRecheckResult {
  * say) puts the invoice back into arrears, a suppressed reminder is
  * reinstated — hence the two directions.
  */
-export function recheckReminderEligibility(
-  db: Db,
+export async function recheckReminderEligibility(
+  db: SqlDb,
   invoice: InvoiceRecord,
-): ReminderRecheckResult {
+): Promise<ReminderRecheckResult>{
   const suppressed: string[] = [];
   const reinstated: string[] = [];
   const settled = invoice.balance_cents <= 0 || invoice.status === 'void';
 
-  const scheduled = db
-    .prepare(
+  const scheduled = await db.all(
       `SELECT id, kind FROM reminders
-        WHERE invoice_id = ? AND status = 'scheduled'`,
-    )
-    .all(invoice.id) as Array<{ id: string; kind: string }>;
+        WHERE invoice_id = ? AND status = 'scheduled'`, [invoice.id]) as Array<{ id: string; kind: string }>;
 
-  const suppressedRows = db
-    .prepare(
+  const suppressedRows = await db.all(
       `SELECT id, kind, suppressed_reason FROM reminders
-        WHERE invoice_id = ? AND status = 'suppressed'`,
-    )
-    .all(invoice.id) as Array<{
+        WHERE invoice_id = ? AND status = 'suppressed'`, [invoice.id]) as Array<{
     id: string;
     kind: string;
     suppressed_reason: string | null;
@@ -101,11 +89,10 @@ export function recheckReminderEligibility(
         ? 'invoice_voided'
         : 'invoice_settled';
     for (const r of scheduled) {
-      db.prepare(
+      await db.run(
         `UPDATE reminders
             SET status = 'suppressed', suppressed_reason = ?, updated_at = ?
-          WHERE id = ?`,
-      ).run(reason, now, r.id);
+          WHERE id = ?`, [reason, now, r.id]);
       suppressed.push(r.id);
     }
   } else {
@@ -116,11 +103,10 @@ export function recheckReminderEligibility(
         r.suppressed_reason === 'invoice_settled' ||
         r.suppressed_reason === 'invoice_voided'
       ) {
-        db.prepare(
+        await db.run(
           `UPDATE reminders
               SET status = 'scheduled', suppressed_reason = NULL, updated_at = ?
-            WHERE id = ?`,
-        ).run(now, r.id);
+            WHERE id = ?`, [now, r.id]);
         reinstated.push(r.id);
       }
     }
@@ -130,45 +116,43 @@ export function recheckReminderEligibility(
 }
 
 /** Schedule the standard reminder ladder for a newly issued invoice. */
-export function scheduleRemindersForInvoice(
-  db: Db,
+export async function scheduleRemindersForInvoice(
+  db: SqlDb,
   invoice: InvoiceRecord,
-): void {
+): Promise<void>{
   const due = new Date(`${invoice.due_date}T00:00:00Z`);
   const ladder: Array<{ kind: ReminderRecord['kind']; offsetDays: number }> = [
     { kind: 'due_soon', offsetDays: -3 },
     { kind: 'overdue', offsetDays: 1 },
     { kind: 'final_notice', offsetDays: 14 },
   ];
-  const insert = db.prepare(
-    `INSERT INTO reminders (id, seller_id, invoice_id, kind, status, scheduled_for)
-     VALUES (?, ?, ?, ?, 'scheduled', ?)`,
-  );
+  // No prepared-handle reuse: the async interface has no prepare().
   for (const step of ladder) {
     const when = new Date(due);
     when.setUTCDate(when.getUTCDate() + step.offsetDays);
-    insert.run(
+    await db.run(
+      `INSERT INTO reminders (id, seller_id, invoice_id, kind, status, scheduled_for)
+       VALUES (?, ?, ?, ?, 'scheduled', ?)`,
+      [
       `rem_${invoice.id}_${step.kind}`,
       invoice.seller_id,
       invoice.id,
       step.kind,
       when.toISOString().slice(0, 10),
+      ],
     );
   }
 }
 
 /** Reminders that would actually go out — the "outstanding reminders" view. */
-export function listOutstandingReminders(
-  db: Db,
+export async function listOutstandingReminders(
+  db: SqlDb,
   sellerId: string,
-): Array<ReminderRecord & { invoice_number: string }> {
-  return db
-    .prepare(
+): Promise<Array<ReminderRecord & { invoice_number: string }>>{
+  return await db.all(
       `SELECT r.*, i.number AS invoice_number
          FROM reminders r
          JOIN invoices i ON i.id = r.invoice_id
         WHERE r.seller_id = ? AND r.status = 'scheduled'
-        ORDER BY r.scheduled_for`,
-    )
-    .all(sellerId) as Array<ReminderRecord & { invoice_number: string }>;
+        ORDER BY r.scheduled_for`, [sellerId]) as Array<ReminderRecord & { invoice_number: string }>;
 }

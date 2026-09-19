@@ -4,11 +4,12 @@
  * list views without shipping every preview JSON blob.
  */
 
-import type { Db } from '../db';
+import type { SqlDb } from '../db';
 import { TOOL_DEFINITIONS, type ToolDefinition } from './agent-tools';
 
 export { callTool } from './agent-tools';
 
+/** Pure: formats the static tool registry. No database access. */
 export function describeTools(): Array<
   ToolDefinition & { approval_note: string }
 > {
@@ -40,20 +41,17 @@ export interface ProposalSummary {
  * Compact proposal rows for the list view, including a one-line human
  * summary so the UI does not have to render raw JSON to be useful.
  */
-export function listProposalSummaries(
-  db: Db,
+export async function listProposalSummaries(
+  db: SqlDb,
   sellerId: string,
-): ProposalSummary[] {
-  const rows = db
-    .prepare(
+): Promise<ProposalSummary[]>{
+  const rows = await db.all(
       `SELECT id, proposal_kind, status, proposed_by, proposed_at, approved_by,
               approval_basis, posted_entry_id, preview_json
          FROM ledger_proposals
         WHERE seller_id = ?
-        ORDER BY proposed_at DESC, rowid DESC
-        LIMIT 200`,
-    )
-    .all(sellerId) as Array<{
+        ORDER BY proposed_at DESC, id DESC
+        LIMIT 200`, [sellerId]) as Array<{
     id: string;
     proposal_kind: string;
     status: string;

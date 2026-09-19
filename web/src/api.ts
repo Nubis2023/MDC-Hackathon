@@ -329,6 +329,26 @@ export const api = {
   invoices: (sellerId: string) =>
     request<{ invoices: Invoice[] }>(`/api/sellers/${sellerId}/invoices`),
 
+  /**
+   * Place an invoice. Creates the document and its reminder ladder only —
+   * posting the receivable to the ledger is a separate, approvable step.
+   */
+  createInvoice: (
+    sellerId: string,
+    body: {
+      customer_name: string;
+      number: string;
+      issue_date: string;
+      due_date: string;
+      subtotal_cents: number;
+      tax_cents?: number;
+    },
+  ) =>
+    request<{ invoice: Invoice; next_operation: Record<string, unknown> }>(
+      `/api/sellers/${sellerId}/invoices`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+
   payments: (sellerId: string) =>
     request<{ payments: Payment[] }>(`/api/sellers/${sellerId}/payments`),
 

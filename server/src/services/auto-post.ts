@@ -19,7 +19,7 @@
  * takes the manual approval path.
  */
 
-import type { Db } from '../db';
+import type { SqlDb } from '../db';
 import { canonicalJson } from './ids';
 
 export interface AutoPostRule {
@@ -55,12 +55,9 @@ export interface OperationShape {
   amount_cents?: number;
 }
 
-export function listAutoPostRules(db: Db, sellerId: string): AutoPostRule[] {
-  return db
-    .prepare(
-      `SELECT * FROM auto_post_rules WHERE seller_id = ? ORDER BY created_at DESC`,
-    )
-    .all(sellerId) as AutoPostRule[];
+export async function listAutoPostRules(db: SqlDb, sellerId: string): Promise<AutoPostRule[]>{
+  return await db.all(
+      `SELECT * FROM auto_post_rules WHERE seller_id = ? ORDER BY created_at DESC`, [sellerId]) as AutoPostRule[];
 }
 
 /**
@@ -69,17 +66,14 @@ export function listAutoPostRules(db: Db, sellerId: string): AutoPostRule[] {
  * Rules are evaluated in creation order and the first match wins, so the
  * matching is deterministic rather than dependent on row ordering.
  */
-export function findMatchingAutoPostRule(
-  db: Db,
+export async function findMatchingAutoPostRule(
+  db: SqlDb,
   op: OperationShape,
-): AutoRuleMatch | null {
-  const rules = db
-    .prepare(
+): Promise<AutoRuleMatch | null>{
+  const rules = await db.all(
       `SELECT * FROM auto_post_rules
         WHERE seller_id = ? AND proposal_kind = ? AND enabled = 1
-        ORDER BY created_at, rowid`,
-    )
-    .all(op.seller_id, op.proposal_kind) as AutoPostRule[];
+        ORDER BY created_at, id`, [op.seller_id, op.proposal_kind]) as AutoPostRule[];
 
   for (const rule of rules) {
     let matcher: Record<string, unknown>;
@@ -96,6 +90,10 @@ export function findMatchingAutoPostRule(
       continue;
     }
 
+    // Synchronous on purpose: `every` with an async callback returns a truthy
+    // Promise regardless of the comparison result, so making this async would
+    // make EVERY rule match every operation — silently bypassing the approval
+    // requirement auto-post rules are supposed to be constrained by.
     const everyFieldMatches = matcherKeys.every((key) =>
       deepEqual(canonicalJson(matcher[key]), canonicalJson(op.fields[key])),
     );
@@ -128,6 +126,7 @@ export function findMatchingAutoPostRule(
   return null;
 }
 
+/** Pure comparison — no database access, so it stays synchronous. */
 function deepEqual(a: string, b: string): boolean {
   return a === b;
 }
@@ -143,31 +142,20 @@ export interface CreateAutoPostRuleInput {
   created_by: string;
 }
 
-export function createAutoPostRule(db: Db, input: CreateAutoPostRuleInput): void {
-  db.prepare(
+export async function createAutoPostRule(db: SqlDb, input: CreateAutoPostRuleInput): Promise<void>{
+  await db.run(
     `INSERT INTO auto_post_rules
        (id, seller_id, name, enabled, proposal_kind, match_mode, match_json,
         max_amount_cents, created_by)
-     VALUES (?, ?, ?, ?, ?, 'exact', ?, ?, ?)`,
-  ).run(
-    input.id,
-    input.seller_id,
-    input.name,
-    input.enabled ? 1 : 0,
-    input.proposal_kind,
-    canonicalJson(input.match),
-    input.max_amount_cents ?? null,
-    input.created_by,
-  );
+     VALUES (?, ?, ?, ?, ?, 'exact', ?, ?, ?)`, [input.id, input.seller_id, input.name, input.enabled ? 1 : 0, input.proposal_kind, canonicalJson(input.match), input.max_amount_cents ?? null, input.created_by]);
 }
 
-export function setAutoPostRuleEnabled(
-  db: Db,
+export async function setAutoPostRuleEnabled(
+  db: SqlDb,
   sellerId: string,
   ruleId: string,
   enabled: boolean,
-): void {
-  db.prepare(
-    `UPDATE auto_post_rules SET enabled = ? WHERE seller_id = ? AND id = ?`,
-  ).run(enabled ? 1 : 0, sellerId, ruleId);
+): Promise<void>{
+  await db.run(
+    `UPDATE auto_post_rules SET enabled = ? WHERE seller_id = ? AND id = ?`, [enabled ? 1 : 0, sellerId, ruleId]);
 }

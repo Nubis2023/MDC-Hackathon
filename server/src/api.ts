@@ -8,11 +8,16 @@
  * for a session lookup would not change any of the controls below it.
  */
 
-import express, { type NextFunction, type Request, type Response } from 'express';
+import express, {
+  type NextFunction,
+  type Request,
+  type RequestHandler,
+  type Response,
+} from 'express';
 import cors from 'cors';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import type { Db } from './db';
+import type { SqlDb } from './db';
 import { isLedgerError, LedgerError } from './domain/errors';
 import type { Actor } from './domain/types';
 import {
@@ -52,7 +57,7 @@ import {
   proposeLedgerUpdate,
   rejectLedgerUpdate,
 } from './services/ledger';
-import { listInvoices } from './services/invoices';
+import { createInvoice, listInvoices } from './services/invoices';
 import { listPayments } from './services/payments';
 import {
   accountBalances,
@@ -60,6 +65,22 @@ import {
 } from './services/reconciliation';
 import { listOutstandingReminders, listReminders } from './services/reminders';
 import { newId } from './services/ids';
+
+/**
+ * Wrap an async route handler so a rejected promise reaches Express.
+ *
+ * Express 4 does not await a handler that returns a promise: a thrown error
+ * inside an async handler becomes an unhandled rejection and the request
+ * hangs. This forwards it to the error middleware, which is where the
+ * LedgerError -> HTTP status mapping lives.
+ */
+function asyncHandler(
+  fn: (req: Request, res: Response, next: NextFunction) => Promise<unknown>,
+): RequestHandler {
+  return (req, res, next) => {
+    void fn(req, res, next).catch(next);
+  };
+}
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -70,24 +91,29 @@ declare global {
   }
 }
 
-function loadActor(db: Db, req: Request): Actor | null {
+async function loadActor(db: SqlDb, req: Request): Promise<Actor | null>{
   const headerId = req.header('x-actor-id');
   const id = headerId ?? 'user_owner_1';
-  const row = db
-    .prepare(`SELECT id, name, kind FROM users WHERE id = ?`)
-    .get(id) as Actor | undefined;
+  const row = await db.get(`SELECT id, name, kind FROM users WHERE id = ?`, [id]) as Actor | undefined;
   return row ?? null;
 }
 
-export function createApp(db: Db): express.Express {
+/**
+ * Build the Express app.
+ *
+ * Synchronous: nothing here awaits at construction time — only the route
+ * handlers do, and they are async. Returning a promise would force every
+ * caller to await before `listen`, for no benefit.
+ */
+export function createApp(db: SqlDb): express.Express {
   const app = express();
   app.use(cors());
   app.use(express.json({ limit: '1mb' }));
 
   // ── Actor resolution ─────────────────────────────────────────────────
-  app.use((req, res, next) => {
+  app.use(asyncHandler(async (req, res, next) => {
     if (req.path === '/api/health') return next();
-    const actor = loadActor(db, req);
+    const actor = await loadActor(db, req);
     if (!actor) {
       res.status(401).json({
         error: {
@@ -99,7 +125,7 @@ export function createApp(db: Db): express.Express {
     }
     req.actor = actor;
     next();
-  });
+  }));
 
   const actorOf = (req: Request): Actor => {
     if (!req.actor) {
@@ -109,105 +135,152 @@ export function createApp(db: Db): express.Express {
   };
 
   // ── Health & bootstrap ───────────────────────────────────────────────
-  app.get('/api/health', (_req, res) => {
+  app.get('/api/health',asyncHandler( async (_req, res) => {
     res.json({ ok: true, service: 'seller-ledger', time: new Date().toISOString() });
-  });
+  }));
 
-  app.get('/api/bootstrap', (req, res) => {
+  app.get('/api/bootstrap',asyncHandler( async (req, res) => {
     const actor = actorOf(req);
-    const sellerIds = accessibleSellerIds(db, actor);
-    const sellers = sellerIds.map((id) => {
-      const seller = db
-        .prepare(`SELECT id, name, currency, authoritative_system FROM sellers WHERE id = ?`)
-        .get(id) as {
-        id: string;
-        name: string;
-        currency: string;
-        authoritative_system: 'local' | 'external';
-      };
-      return {
-        ...seller,
-        role: getMembership(db, id, actor.id)?.role ?? null,
-        posture: getLedgerPosture(db, id),
-      };
-    });
-    const users = db
-      .prepare(`SELECT id, name, kind FROM users ORDER BY kind, name`)
-      .all() as Actor[];
+    const sellerIds = await accessibleSellerIds(db, actor);
+    // Promise.all is required: `map(async …)` yields an array of pending
+    // promises, and JSON.stringify renders those as `{}` — so the response
+    // silently carried empty seller objects rather than the sellers.
+    const sellers = await Promise.all(
+      sellerIds.map(async (id) => {
+        const seller = (await db.get(
+          `SELECT id, name, currency, authoritative_system FROM sellers WHERE id = ?`,
+          [id],
+        )) as {
+          id: string;
+          name: string;
+          currency: string;
+          authoritative_system: 'local' | 'external';
+        };
+        return {
+          ...seller,
+          role: (await getMembership(db, id, actor.id))?.role ?? null,
+          posture: await getLedgerPosture(db, id),
+        };
+      }),
+    );
+    const users = (await db.all(
+      `SELECT id, name, kind FROM users ORDER BY kind, name`,
+    )) as Actor[];
     res.json({ actor, sellers, users });
-  });
+  }));
 
   // ── Reconciliation interface ─────────────────────────────────────────
-  app.get('/api/sellers/:sellerId/reconciliation', (req, res) => {
+  app.get('/api/sellers/:sellerId/reconciliation',asyncHandler( async (req, res) => {
     const actor = actorOf(req);
-    const sellerId = req.params.sellerId;
-    assertSellerAccess(db, sellerId, actor);
-    const { summary, rows } = reconcileSeller(db, sellerId);
+    const sellerId = String(req.params.sellerId ?? "");
+    await assertSellerAccess(db, sellerId, actor);
+    const { summary, rows } = await reconcileSeller(db, sellerId);
     res.json({
       summary,
       rows,
-      accounts: accountBalances(db, sellerId),
-      posture: getLedgerPosture(db, sellerId),
+      accounts: await accountBalances(db, sellerId),
+      posture: await getLedgerPosture(db, sellerId),
     });
-  });
+  }));
 
   // ── Invoices & payments ──────────────────────────────────────────────
-  app.get('/api/sellers/:sellerId/invoices', (req, res) => {
+  app.get('/api/sellers/:sellerId/invoices',asyncHandler( async (req, res) => {
     const actor = actorOf(req);
-    const sellerId = req.params.sellerId;
-    assertSellerAccess(db, sellerId, actor);
-    res.json({ invoices: listInvoices(db, { sellerId }) });
-  });
+    const sellerId = String(req.params.sellerId ?? "");
+    await assertSellerAccess(db, sellerId, actor);
+    res.json({ invoices: await listInvoices(db, { sellerId }) });
+  }));
 
-  app.get('/api/sellers/:sellerId/payments', (req, res) => {
+  /**
+   * Place an invoice: create the document and its reminder ladder.
+   *
+   * Deliberately does NOT post to the ledger. Putting the receivable on the
+   * books is a separate step through the normal propose/approve/post flow
+   * (issue_invoice), so the accounting entry is reviewable and sits behind the
+   * same approval gate as every other posting.
+   */
+  app.post('/api/sellers/:sellerId/invoices',asyncHandler( async (req, res) => {
     const actor = actorOf(req);
-    const sellerId = req.params.sellerId;
-    assertSellerAccess(db, sellerId, actor);
-    res.json({ payments: listPayments(db, sellerId) });
-  });
+    const sellerId = String(req.params.sellerId ?? "");
+    await assertSellerAccess(db, sellerId, actor);
+
+    const invoice = await createInvoice(db, actor, {
+      seller_id: sellerId,
+      customer_name: req.body.customer_name,
+      number: req.body.number,
+      issue_date: req.body.issue_date,
+      due_date: req.body.due_date,
+      currency: req.body.currency,
+      subtotal_cents: req.body.subtotal_cents,
+      tax_cents: req.body.tax_cents,
+    });
+
+    // The next step is a separate, reviewable proposal, so hand the caller
+    // everything needed to raise it without a second round trip.
+    const nextOperation = {
+      kind: 'issue_invoice',
+      seller_id: sellerId,
+      invoice_id: invoice.id,
+    };
+
+    res.status(201).json({
+      invoice,
+      next_operation: nextOperation,
+      next_step:
+        'Raise an issue_invoice proposal for this invoice to put the ' +
+        'receivable on the ledger. It requires approval before it can post.',
+    });
+  }));
+
+  app.get('/api/sellers/:sellerId/payments',asyncHandler( async (req, res) => {
+    const actor = actorOf(req);
+    const sellerId = String(req.params.sellerId ?? "");
+    await assertSellerAccess(db, sellerId, actor);
+    res.json({ payments: await listPayments(db, sellerId) });
+  }));
 
   // ── Proposals: preview, propose, approve, reject, post ───────────────
-  app.post('/api/sellers/:sellerId/proposals/preview', (req, res) => {
+  app.post('/api/sellers/:sellerId/proposals/preview',asyncHandler( async (req, res) => {
     const actor = actorOf(req);
-    const sellerId = req.params.sellerId;
-    assertSellerAccess(db, sellerId, actor);
+    const sellerId = String(req.params.sellerId ?? "");
+    await assertSellerAccess(db, sellerId, actor);
     const operation = { ...req.body.operation, seller_id: sellerId };
-    res.json({ preview: previewLedgerUpdate(db, actor, operation) });
-  });
+    res.json({ preview: await previewLedgerUpdate(db, actor, operation) });
+  }));
 
-  app.post('/api/sellers/:sellerId/proposals', (req, res) => {
+  app.post('/api/sellers/:sellerId/proposals',asyncHandler( async (req, res) => {
     const actor = actorOf(req);
-    const sellerId = req.params.sellerId;
+    const sellerId = String(req.params.sellerId ?? "");
     const operation = { ...req.body.operation, seller_id: sellerId };
-    const proposal = proposeLedgerUpdate(db, actor, operation, {
+    const proposal = await proposeLedgerUpdate(db, actor, operation, {
       idempotencyKey: req.body.idempotency_key ?? null,
     });
     res.status(201).json({ proposal });
-  });
+  }));
 
-  app.get('/api/sellers/:sellerId/proposals', (req, res) => {
+  app.get('/api/sellers/:sellerId/proposals',asyncHandler( async (req, res) => {
     const actor = actorOf(req);
-    const sellerId = req.params.sellerId;
-    assertSellerAccess(db, sellerId, actor);
+    const sellerId = String(req.params.sellerId ?? "");
+    await assertSellerAccess(db, sellerId, actor);
     const status = typeof req.query.status === 'string' ? req.query.status : undefined;
-    const proposals = listProposals(
+    const proposals = await listProposals(
       db,
       actor,
       sellerId,
       status as never,
     );
-    res.json({ proposals, summaries: listProposalSummaries(db, sellerId) });
-  });
+    res.json({ proposals, summaries: await listProposalSummaries(db, sellerId) });
+  }));
 
-  app.get('/api/proposals/:proposalId', (req, res) => {
+  app.get('/api/proposals/:proposalId',asyncHandler( async (req, res) => {
     const actor = actorOf(req);
-    res.json({ proposal: getProposalForActor(db, actor, req.params.proposalId) });
-  });
+    res.json({ proposal: await getProposalForActor(db, actor, String(req.params.proposalId ?? "")) });
+  }));
 
-  app.post('/api/proposals/:proposalId/approve', (req, res) => {
+  app.post('/api/proposals/:proposalId/approve',asyncHandler( async (req, res) => {
     const actor = actorOf(req);
-    const result = callTool(db, actor, 'approve_ledger_update', {
-      proposal_id: req.params.proposalId,
+    const result = await callTool(db, actor, 'approve_ledger_update', {
+      proposal_id: String(req.params.proposalId ?? ""),
       ...(typeof req.body.reason === 'string' ? { reason: req.body.reason } : {}),
     });
     if (!result.ok) {
@@ -215,12 +288,12 @@ export function createApp(db: Db): express.Express {
       return;
     }
     res.json(result);
-  });
+  }));
 
-  app.post('/api/proposals/:proposalId/post', (req, res) => {
+  app.post('/api/proposals/:proposalId/post',asyncHandler( async (req, res) => {
     const actor = actorOf(req);
-    const result = callTool(db, actor, 'post_ledger_update', {
-      proposal_id: req.params.proposalId,
+    const result = await callTool(db, actor, 'post_ledger_update', {
+      proposal_id: String(req.params.proposalId ?? ""),
       ...(typeof req.body.idempotency_key === 'string'
         ? { idempotency_key: req.body.idempotency_key }
         : {}),
@@ -230,51 +303,51 @@ export function createApp(db: Db): express.Express {
       return;
     }
     res.json(result);
-  });
+  }));
 
   // Rejections are not a ledger write, so they go straight to the service.
-  app.post('/api/proposals/:proposalId/reject', (req, res) => {
+  app.post('/api/proposals/:proposalId/reject',asyncHandler( async (req, res) => {
     const actor = actorOf(req);
     res.json({
-      proposal: rejectLedgerUpdate(
+      proposal: await rejectLedgerUpdate(
         db,
         actor,
-        req.params.proposalId,
+        String(req.params.proposalId ?? ""),
         typeof req.body.reason === 'string' ? req.body.reason : 'no reason given',
       ),
     });
-  });
+  }));
 
   // ── Journal ──────────────────────────────────────────────────────────
-  app.get('/api/sellers/:sellerId/journal', (req, res) => {
+  app.get('/api/sellers/:sellerId/journal',asyncHandler( async (req, res) => {
     const actor = actorOf(req);
-    const sellerId = req.params.sellerId;
-    assertSellerAccess(db, sellerId, actor);
+    const sellerId = String(req.params.sellerId ?? "");
+    await assertSellerAccess(db, sellerId, actor);
     res.json({
-      entries: listJournalEntries(db, {
+      entries: await listJournalEntries(db, {
         sellerId,
         ...(typeof req.query.source_type === 'string'
           ? { sourceType: req.query.source_type }
           : {}),
       }),
-      reversible: listReversibleEntries(db, sellerId).map((e) => ({
+      reversible: (await listReversibleEntries(db, sellerId)).map((e) => ({
         id: e.id,
         entry_no: e.entry_no,
         memo: e.memo,
       })),
     });
-  });
+  }));
 
-  app.get('/api/journal/:entryId', (req, res) => {
+  app.get('/api/journal/:entryId',asyncHandler( async (req, res) => {
     const actor = actorOf(req);
-    const entry = getEntryForActor(db, actor, req.params.entryId);
-    res.json({ entry, sync_attempts: listSyncAttempts(db, entry.id) });
-  });
+    const entry = await getEntryForActor(db, actor, String(req.params.entryId ?? ""));
+    res.json({ entry, sync_attempts: await listSyncAttempts(db, entry.id) });
+  }));
 
-  app.post('/api/journal/:entryId/reverse', (req, res) => {
+  app.post('/api/journal/:entryId/reverse',asyncHandler( async (req, res) => {
     const actor = actorOf(req);
-    const result = callTool(db, actor, 'reverse_ledger_entry', {
-      entry_id: req.params.entryId,
+    const result = await callTool(db, actor, 'reverse_ledger_entry', {
+      entry_id: String(req.params.entryId ?? ""),
       reason: req.body.reason,
     });
     if (!result.ok) {
@@ -282,20 +355,20 @@ export function createApp(db: Db): express.Express {
       return;
     }
     res.json(result);
-  });
+  }));
 
   // ── Adjustments ──────────────────────────────────────────────────────
-  app.get('/api/sellers/:sellerId/adjustments', (req, res) => {
+  app.get('/api/sellers/:sellerId/adjustments',asyncHandler( async (req, res) => {
     const actor = actorOf(req);
-    const sellerId = req.params.sellerId;
-    assertSellerAccess(db, sellerId, actor);
-    res.json({ adjustments: listAdjustments(db, sellerId) });
-  });
+    const sellerId = String(req.params.sellerId ?? "");
+    await assertSellerAccess(db, sellerId, actor);
+    res.json({ adjustments: await listAdjustments(db, sellerId) });
+  }));
 
-  app.post('/api/sellers/:sellerId/adjustments', (req, res) => {
+  app.post('/api/sellers/:sellerId/adjustments',asyncHandler( async (req, res) => {
     const actor = actorOf(req);
-    const sellerId = req.params.sellerId;
-    const adjustment = createAdjustment(db, actor, {
+    const sellerId = String(req.params.sellerId ?? "");
+    const adjustment = await createAdjustment(db, actor, {
       seller_id: sellerId,
       invoice_id: req.body.invoice_id ?? null,
       amount_cents: req.body.amount_cents,
@@ -304,53 +377,53 @@ export function createApp(db: Db): express.Express {
       memo: req.body.memo,
     });
     res.status(201).json({ adjustment });
-  });
+  }));
 
-  app.post('/api/sellers/:sellerId/adjustments/:adjustmentId/approve', (req, res) => {
+  app.post('/api/sellers/:sellerId/adjustments/:adjustmentId/approve',asyncHandler( async (req, res) => {
     const actor = actorOf(req);
-    const adjustment = approveAdjustment(
+    const adjustment = await approveAdjustment(
       db,
       actor,
-      req.params.sellerId,
-      req.params.adjustmentId,
+      String(req.params.sellerId ?? ''),
+      String(req.params.adjustmentId ?? ''),
     );
     res.json({ adjustment });
-  });
+  }));
 
   // ── Reminders ────────────────────────────────────────────────────────
-  app.get('/api/sellers/:sellerId/reminders', (req, res) => {
+  app.get('/api/sellers/:sellerId/reminders',asyncHandler( async (req, res) => {
     const actor = actorOf(req);
-    const sellerId = req.params.sellerId;
-    assertSellerAccess(db, sellerId, actor);
+    const sellerId = String(req.params.sellerId ?? "");
+    await assertSellerAccess(db, sellerId, actor);
     res.json({
-      reminders: listReminders(db, sellerId),
-      outstanding: listOutstandingReminders(db, sellerId),
+      reminders: await listReminders(db, sellerId),
+      outstanding: await listOutstandingReminders(db, sellerId),
     });
-  });
+  }));
 
   // ── Audit ────────────────────────────────────────────────────────────
-  app.get('/api/sellers/:sellerId/audit', (req, res) => {
+  app.get('/api/sellers/:sellerId/audit',asyncHandler( async (req, res) => {
     const actor = actorOf(req);
-    const sellerId = req.params.sellerId;
-    assertSellerAccess(db, sellerId, actor);
-    res.json({ events: listAuditEvents(db, sellerId) });
-  });
+    const sellerId = String(req.params.sellerId ?? "");
+    await assertSellerAccess(db, sellerId, actor);
+    res.json({ events: await listAuditEvents(db, sellerId) });
+  }));
 
   // ── External sync ────────────────────────────────────────────────────
-  app.get('/api/sellers/:sellerId/sync', (req, res) => {
+  app.get('/api/sellers/:sellerId/sync',asyncHandler( async (req, res) => {
     const actor = actorOf(req);
-    const sellerId = req.params.sellerId;
-    assertSellerAccess(db, sellerId, actor);
+    const sellerId = String(req.params.sellerId ?? "");
+    await assertSellerAccess(db, sellerId, actor);
     res.json({
-      posture: getLedgerPosture(db, sellerId),
-      pending: listPendingSyncEntries(db, sellerId),
+      posture: await getLedgerPosture(db, sellerId),
+      pending: await listPendingSyncEntries(db, sellerId),
     });
-  });
+  }));
 
-  app.post('/api/journal/:entryId/sync-attempt', (req, res) => {
+  app.post('/api/journal/:entryId/sync-attempt',asyncHandler( async (req, res) => {
     const actor = actorOf(req);
-    const entry = getEntryForActor(db, actor, req.params.entryId);
-    const id = recordSyncAttempt(db, {
+    const entry = await getEntryForActor(db, actor, String(req.params.entryId ?? ""));
+    const id = await recordSyncAttempt(db, {
       sellerId: entry.seller_id,
       entryId: entry.id,
       platform: req.body.platform ?? 'demo-accounting-platform',
@@ -359,23 +432,23 @@ export function createApp(db: Db): express.Express {
       errorMessage: req.body.error_message ?? null,
       actor,
     });
-    res.status(201).json({ sync_attempt_id: id, entry: getEntryForActor(db, actor, entry.id) });
-  });
+    res.status(201).json({ sync_attempt_id: id, entry: await getEntryForActor(db, actor, entry.id) });
+  }));
 
   // ── Auto-post rules ──────────────────────────────────────────────────
-  app.get('/api/sellers/:sellerId/auto-post-rules', (req, res) => {
+  app.get('/api/sellers/:sellerId/auto-post-rules',asyncHandler( async (req, res) => {
     const actor = actorOf(req);
-    const sellerId = req.params.sellerId;
-    assertSellerAccess(db, sellerId, actor);
-    res.json({ rules: listAutoPostRules(db, sellerId) });
-  });
+    const sellerId = String(req.params.sellerId ?? "");
+    await assertSellerAccess(db, sellerId, actor);
+    res.json({ rules: await listAutoPostRules(db, sellerId) });
+  }));
 
-  app.post('/api/sellers/:sellerId/auto-post-rules', (req, res) => {
+  app.post('/api/sellers/:sellerId/auto-post-rules',asyncHandler( async (req, res) => {
     const actor = actorOf(req);
-    const sellerId = req.params.sellerId;
-    assertSellerAccess(db, sellerId, actor);
+    const sellerId = String(req.params.sellerId ?? "");
+    await assertSellerAccess(db, sellerId, actor);
     const id = newId('rule');
-    createAutoPostRule(db, {
+    await createAutoPostRule(db, {
       id,
       seller_id: sellerId,
       name: req.body.name,
@@ -385,25 +458,25 @@ export function createApp(db: Db): express.Express {
       enabled: Boolean(req.body.enabled),
       created_by: actor.id,
     });
-    res.status(201).json({ rule_id: id, rules: listAutoPostRules(db, sellerId) });
-  });
+    res.status(201).json({ rule_id: id, rules: await listAutoPostRules(db, sellerId) });
+  }));
 
-  app.post('/api/sellers/:sellerId/auto-post-rules/:ruleId/enabled', (req, res) => {
+  app.post('/api/sellers/:sellerId/auto-post-rules/:ruleId/enabled',asyncHandler( async (req, res) => {
     const actor = actorOf(req);
-    const sellerId = req.params.sellerId;
-    assertSellerAccess(db, sellerId, actor);
-    setAutoPostRuleEnabled(db, sellerId, req.params.ruleId, Boolean(req.body.enabled));
-    res.json({ rules: listAutoPostRules(db, sellerId) });
-  });
+    const sellerId = String(req.params.sellerId ?? "");
+    await assertSellerAccess(db, sellerId, actor);
+    await setAutoPostRuleEnabled(db, sellerId, String(req.params.ruleId ?? ""), Boolean(req.body.enabled));
+    res.json({ rules: await listAutoPostRules(db, sellerId) });
+  }));
 
   // ── Agent tools ──────────────────────────────────────────────────────
-  app.get('/api/agent/tools', (_req, res) => {
-    res.json({ tools: describeTools() });
-  });
+  app.get('/api/agent/tools',asyncHandler( async (_req, res) => {
+    res.json({ tools: await describeTools() });
+  }));
 
-  app.post('/api/agent/tools/:toolName', (req, res) => {
+  app.post('/api/agent/tools/:toolName',asyncHandler( async (req, res) => {
     const actor = actorOf(req);
-    const result = callTool(db, actor, req.params.toolName, req.body);
+    const result = await callTool(db, actor, String(String(req.params.toolName ?? "") ?? ""), req.body);
     if (!result.ok) {
       const status =
         result.error?.code === 'forbidden' || result.error?.code === 'self_approval'
@@ -415,7 +488,7 @@ export function createApp(db: Db): express.Express {
       return;
     }
     res.json(result);
-  });
+  }));
 
   // ── Static UI ────────────────────────────────────────────────────────
   // The built frontend is served from the same origin as the API so there is
@@ -425,12 +498,15 @@ export function createApp(db: Db): express.Express {
   if (existsSync(webDist)) {
     app.use(express.static(webDist));
     // SPA fallback for client-side routes, excluding /api.
-    app.get(/^(?!\/api).*/, (_req, res) => {
+    app.get(/^(?!\/api).*/,asyncHandler( async (_req, res) => {
       res.sendFile(join(webDist, 'index.html'));
-    });
+    }));
   }
 
   // ── Error handling ───────────────────────────────────────────────────
+  // Express identifies error middleware by arity (4 params), so this must NOT
+  // be wrapped in asyncHandler — that would produce a 3-param function and
+  // Express would treat it as ordinary middleware, silently swallowing errors.
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (isLedgerError(err)) {
       res.status(err.httpStatus).json({

@@ -22,8 +22,8 @@
  *   - optimistic version checks catch a concurrent writer that got there first
  */
 
-import type { Db } from '../db';
-import { immediateTransaction } from '../db';
+import type { SqlDb } from '../db';
+import {  } from '../db';
 import { LedgerError } from '../domain/errors';
 import type {
   Actor,
@@ -69,41 +69,35 @@ export interface ProposeOptions {
  * re-planned in full by `post`, so the numbers an approver saw are verified
  * again at commit time rather than trusted.
  */
-export function proposeLedgerUpdate(
-  db: Db,
+export async function proposeLedgerUpdate(
+  db: SqlDb,
   actor: Actor,
   op: OperationInput,
   options: ProposeOptions = {},
-): Proposal {
+): Promise<Proposal>{
   const sellerId = op.seller_id;
-  assertSellerAccess(db, sellerId, actor);
+  await assertSellerAccess(db, sellerId, actor);
 
-  const plan = planOperation(db, op);
+  const plan = await planOperation(db, op);
 
   // Replay: the same idempotency key returns the existing proposal instead of
   // raising a second one for the same request.
   if (options.idempotencyKey) {
-    const existing = db
-      .prepare(
+    const existing = await db.get(
         `SELECT id, status FROM ledger_proposals
-          WHERE seller_id = ? AND idempotency_key = ?`,
-      )
-      .get(sellerId, options.idempotencyKey) as
+          WHERE seller_id = ? AND idempotency_key = ?`, [sellerId, options.idempotencyKey]) as
       | { id: string; status: string }
       | undefined;
     if (existing) {
-      const prior = getProposal(db, existing.id);
+      const prior = await getProposal(db, existing.id);
       if (prior) return prior;
     }
   }
 
   // A proposal for this source event may already exist.
-  const dup = db
-    .prepare(
+  const dup = await db.get(
       `SELECT id, status FROM ledger_proposals
-        WHERE seller_id = ? AND source_event_id = ?`,
-    )
-    .get(sellerId, plan.source_event_id) as
+        WHERE seller_id = ? AND source_event_id = ?`, [sellerId, plan.source_event_id]) as
     | { id: string; status: string }
     | undefined;
   if (dup) {
@@ -115,27 +109,14 @@ export function proposeLedgerUpdate(
   }
 
   const proposalId = newId('prop');
-  db.prepare(
+  await db.run(
     `INSERT INTO ledger_proposals
        (id, seller_id, proposal_kind, source_type, source_id, source_event_id,
         idempotency_key, preview_json, operation_json, expected_json, status,
         proposed_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'proposed', ?)`,
-  ).run(
-    proposalId,
-    sellerId,
-    plan.proposal_kind,
-    plan.source_type,
-    plan.source_id,
-    plan.source_event_id,
-    options.idempotencyKey ?? null,
-    JSON.stringify(plan.preview),
-    JSON.stringify(op),
-    JSON.stringify(plan.preview.expected),
-    actor.id,
-  );
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'proposed', ?)`, [proposalId, sellerId, plan.proposal_kind, plan.source_type, plan.source_id, plan.source_event_id, options.idempotencyKey ?? null, JSON.stringify(plan.preview), JSON.stringify(op), JSON.stringify(plan.preview.expected), actor.id]);
 
-  writeAuditEvent(db, {
+  await writeAuditEvent(db, {
     seller_id: sellerId,
     actor,
     action: 'proposal.created',
@@ -149,7 +130,7 @@ export function proposeLedgerUpdate(
     },
   });
 
-  const created = getProposal(db, proposalId);
+  const created = await getProposal(db, proposalId);
   if (!created) {
     throw new LedgerError('not_found', 'proposal vanished after insert');
   }
@@ -160,13 +141,13 @@ export function proposeLedgerUpdate(
  * Render the preview without persisting anything. Used by the UI's "what
  * would this do" affordance and by the agent's preview_ledger_update tool.
  */
-export function previewLedgerUpdate(
-  db: Db,
+export async function previewLedgerUpdate(
+  db: SqlDb,
   actor: Actor,
   op: OperationInput,
-): LedgerPreview {
-  assertSellerAccess(db, op.seller_id, actor);
-  return planOperation(db, op).preview;
+): Promise<LedgerPreview>{
+  await assertSellerAccess(db, op.seller_id, actor);
+  return (await planOperation(db, op)).preview;
 }
 
 // ──────────────────────────────── read ──────────────────────────────────
@@ -195,7 +176,7 @@ interface ProposalRow {
   auto_rule_match_json: string | null;
 }
 
-function rowToProposal(row: ProposalRow): Proposal {
+async function rowToProposal(row: ProposalRow): Promise<Proposal>{
   return {
     id: row.id,
     seller_id: row.seller_id,
@@ -219,47 +200,39 @@ function rowToProposal(row: ProposalRow): Proposal {
   };
 }
 
-export function getProposal(db: Db, proposalId: string): Proposal | null {
-  const row = db
-    .prepare(`SELECT * FROM ledger_proposals WHERE id = ?`)
-    .get(proposalId) as ProposalRow | undefined;
-  return row ? rowToProposal(row) : null;
+export async function getProposal(db: SqlDb, proposalId: string): Promise<Proposal | null>{
+  const row = await db.get(`SELECT * FROM ledger_proposals WHERE id = ?`, [proposalId]) as ProposalRow | undefined;
+  return row ? await rowToProposal(row) : null;
 }
 
-export function getProposalForActor(
-  db: Db,
+export async function getProposalForActor(
+  db: SqlDb,
   actor: Actor,
   proposalId: string,
-): Proposal {
-  const proposal = getProposal(db, proposalId);
+): Promise<Proposal>{
+  const proposal = await getProposal(db, proposalId);
   if (!proposal) {
     throw new LedgerError('not_found', `proposal '${proposalId}' not found`);
   }
-  assertSellerAccess(db, proposal.seller_id, actor);
+  await assertSellerAccess(db, proposal.seller_id, actor);
   return proposal;
 }
 
-export function listProposals(
-  db: Db,
+export async function listProposals(
+  db: SqlDb,
   actor: Actor,
   sellerId: string,
   status?: Proposal['status'],
-): Proposal[] {
-  assertSellerAccess(db, sellerId, actor);
+): Promise<Proposal[]>{
+  await assertSellerAccess(db, sellerId, actor);
   const rows = status
-    ? (db
-        .prepare(
+    ? (await db.all(
           `SELECT * FROM ledger_proposals WHERE seller_id = ? AND status = ?
-            ORDER BY proposed_at DESC, rowid DESC`,
-        )
-        .all(sellerId, status) as ProposalRow[])
-    : (db
-        .prepare(
+            ORDER BY proposed_at DESC, id DESC`, [sellerId, status]) as ProposalRow[])
+    : (await db.all(
           `SELECT * FROM ledger_proposals WHERE seller_id = ?
-            ORDER BY proposed_at DESC, rowid DESC LIMIT 200`,
-        )
-        .all(sellerId) as ProposalRow[]);
-  return rows.map(rowToProposal);
+            ORDER BY proposed_at DESC, id DESC LIMIT 200`, [sellerId]) as ProposalRow[]);
+  return Promise.all(rows.map((row) => rowToProposal(row)));
 }
 
 // ─────────────────────────────── approve ────────────────────────────────
@@ -277,13 +250,13 @@ export interface ApproveOptions {
  *   2. Nobody may approve a proposal they raised themselves — this is what
  *      stops the proposing agent (or bookkeeper) from self-authorising.
  */
-export function approveLedgerUpdate(
-  db: Db,
+export async function approveLedgerUpdate(
+  db: SqlDb,
   actor: Actor,
   proposalId: string,
   options: ApproveOptions = {},
-): Proposal {
-  const proposal = getProposalForActor(db, actor, proposalId);
+): Promise<Proposal>{
+  const proposal = await getProposalForActor(db, actor, proposalId);
 
   if (actor.kind === 'agent') {
     throw new LedgerError(
@@ -316,16 +289,15 @@ export function approveLedgerUpdate(
     return proposal;
   }
 
-  assertCanApprove(db, proposal.seller_id, actor);
+  await assertCanApprove(db, proposal.seller_id, actor);
 
-  db.prepare(
+  await db.run(
     `UPDATE ledger_proposals
         SET status = 'approved', approved_by = ?, approved_at = ?,
             approval_basis = 'manual'
-      WHERE id = ?`,
-  ).run(actor.id, new Date().toISOString(), proposalId);
+      WHERE id = ?`, [actor.id, new Date().toISOString(), proposalId]);
 
-  writeAuditEvent(db, {
+  await writeAuditEvent(db, {
     seller_id: proposal.seller_id,
     actor,
     action: 'proposal.approved',
@@ -338,18 +310,18 @@ export function approveLedgerUpdate(
     },
   });
 
-  const updated = getProposal(db, proposalId);
+  const updated = await getProposal(db, proposalId);
   if (!updated) throw new LedgerError('not_found', 'proposal vanished');
   return updated;
 }
 
-export function rejectLedgerUpdate(
-  db: Db,
+export async function rejectLedgerUpdate(
+  db: SqlDb,
   actor: Actor,
   proposalId: string,
   reason: string,
-): Proposal {
-  const proposal = getProposalForActor(db, actor, proposalId);
+): Promise<Proposal>{
+  const proposal = await getProposalForActor(db, actor, proposalId);
   if (proposal.status === 'posted') {
     throw new LedgerError(
       'already_posted',
@@ -358,14 +330,13 @@ export function rejectLedgerUpdate(
   }
   if (proposal.status === 'rejected') return proposal;
 
-  db.prepare(
+  await db.run(
     `UPDATE ledger_proposals
         SET status = 'rejected', rejected_by = ?, rejected_at = ?,
             rejection_reason = ?
-      WHERE id = ?`,
-  ).run(actor.id, new Date().toISOString(), reason, proposalId);
+      WHERE id = ?`, [actor.id, new Date().toISOString(), reason, proposalId]);
 
-  writeAuditEvent(db, {
+  await writeAuditEvent(db, {
     seller_id: proposal.seller_id,
     actor,
     action: 'proposal.rejected',
@@ -374,7 +345,7 @@ export function rejectLedgerUpdate(
     detail: { reason },
   });
 
-  const updated = getProposal(db, proposalId);
+  const updated = await getProposal(db, proposalId);
   if (!updated) throw new LedgerError('not_found', 'proposal vanished');
   return updated;
 }
@@ -389,15 +360,12 @@ export function rejectLedgerUpdate(
  * allocated elsewhere, or an invoice was settled, or another posting bumped a
  * version, the proposal no longer describes reality and posting is refused.
  */
-function revalidate(db: Db, expected: ExpectedState): void {
+async function revalidate(db: SqlDb, expected: ExpectedState): Promise<void>{
   const conflicts: string[] = [];
 
   if (expected.payment_id) {
-    const payment = db
-      .prepare(
-        `SELECT id, version, status, unallocated_cents FROM payments WHERE id = ?`,
-      )
-      .get(expected.payment_id) as
+    const payment = await db.get(
+        `SELECT id, version, status, unallocated_cents FROM payments WHERE id = ?`, [expected.payment_id]) as
       | {
           id: string;
           version: number;
@@ -438,9 +406,7 @@ function revalidate(db: Db, expected: ExpectedState): void {
   }
 
   for (const exp of expected.invoices) {
-    const live = db
-      .prepare(`SELECT id, version, status, number FROM invoices WHERE id = ?`)
-      .get(exp.invoice_id) as
+    const live = await db.get(`SELECT id, version, status, number FROM invoices WHERE id = ?`, [exp.invoice_id]) as
       | { id: string; version: number; status: string; number: string }
       | undefined;
     if (!live) {
@@ -457,7 +423,7 @@ function revalidate(db: Db, expected: ExpectedState): void {
         `invoice ${live.number} status changed ${exp.status} -> ${live.status}`,
       );
     }
-    const derived = deriveInvoiceState(db, live.id);
+    const derived = await deriveInvoiceState(db, live.id);
     if (derived.balance_cents !== exp.balance_cents) {
       conflicts.push(
         `invoice ${live.number} balance changed ${exp.balance_cents} -> ${derived.balance_cents}`,
@@ -483,12 +449,12 @@ function revalidate(db: Db, expected: ExpectedState): void {
  * Runs inside the posting transaction, after revalidation. Returns the
  * invoice ids whose reminders need rechecking.
  */
-function applyEffects(
-  db: Db,
+async function applyEffects(
+  db: SqlDb,
   op: OperationInput,
   sourceEventId: string,
   entryId: string,
-): string[] {
+): Promise<string[]>{
   const touchedInvoices = new Set<string>();
 
   switch (op.kind) {
@@ -499,107 +465,64 @@ function applyEffects(
 
     case 'record_payment': {
       const paymentId = deterministicId('pay', sourceEventId);
-      db.prepare(
+      await db.run(
         `INSERT INTO payments
            (id, seller_id, amount_cents, currency, received_at, reference,
             payer_name, status, unallocated_cents)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'confirmed', ?)`,
-      ).run(
-        paymentId,
-        op.seller_id,
-        op.amount_cents,
-        op.currency ?? 'USD',
-        op.received_at,
-        op.reference ?? null,
-        op.payer_name ?? null,
-        op.amount_cents,
-      );
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'confirmed', ?)`, [paymentId, op.seller_id, op.amount_cents, op.currency ?? 'USD', op.received_at, op.reference ?? null, op.payer_name ?? null, op.amount_cents]);
       break;
     }
 
     case 'allocate_payment': {
       const allocationId = deterministicId('alloc', sourceEventId);
-      db.prepare(
+      await db.run(
         `INSERT INTO payment_allocations
            (id, seller_id, payment_id, invoice_id, amount_cents, status,
             journal_entry_id)
-         VALUES (?, ?, ?, ?, ?, 'active', ?)`,
-      ).run(
-        allocationId,
-        op.seller_id,
-        op.payment_id,
-        op.invoice_id,
-        op.amount_cents,
-        entryId,
-      );
-      recomputePaymentUnallocated(db, op.payment_id);
-      recomputeInvoiceState(db, op.invoice_id);
+         VALUES (?, ?, ?, ?, ?, 'active', ?)`, [allocationId, op.seller_id, op.payment_id, op.invoice_id, op.amount_cents, entryId]);
+      await recomputePaymentUnallocated(db, op.payment_id);
+      await recomputeInvoiceState(db, op.invoice_id);
       touchedInvoices.add(op.invoice_id);
       break;
     }
 
     case 'apply_credit_note': {
       const creditNoteId = deterministicId('cn', sourceEventId);
-      db.prepare(
+      await db.run(
         `INSERT INTO credit_notes
            (id, seller_id, invoice_id, amount_cents, reason, status)
-         VALUES (?, ?, ?, ?, ?, 'applied')`,
-      ).run(
-        creditNoteId,
-        op.seller_id,
-        op.invoice_id,
-        op.amount_cents,
-        op.reason ?? null,
-      );
-      recomputeInvoiceState(db, op.invoice_id);
+         VALUES (?, ?, ?, ?, ?, 'applied')`, [creditNoteId, op.seller_id, op.invoice_id, op.amount_cents, op.reason ?? null]);
+      await recomputeInvoiceState(db, op.invoice_id);
       touchedInvoices.add(op.invoice_id);
       break;
     }
 
     case 'record_fee': {
       const feeId = deterministicId('fee', sourceEventId);
-      db.prepare(
+      await db.run(
         `INSERT INTO fees
            (id, seller_id, payment_id, amount_cents, description, status)
-         VALUES (?, ?, ?, ?, ?, 'charged')`,
-      ).run(
-        feeId,
-        op.seller_id,
-        op.payment_id ?? null,
-        op.amount_cents,
-        op.description,
-      );
+         VALUES (?, ?, ?, ?, ?, 'charged')`, [feeId, op.seller_id, op.payment_id ?? null, op.amount_cents, op.description]);
       break;
     }
 
     case 'record_refund': {
       const refundId = deterministicId('ref', sourceEventId);
-      db.prepare(
+      await db.run(
         `INSERT INTO refunds
            (id, seller_id, payment_id, invoice_id, amount_cents, reason, status)
-         VALUES (?, ?, ?, ?, ?, ?, 'refunded')`,
-      ).run(
-        refundId,
-        op.seller_id,
-        op.payment_id,
-        op.invoice_id ?? null,
-        op.amount_cents,
-        op.reason ?? null,
-      );
+         VALUES (?, ?, ?, ?, ?, ?, 'refunded')`, [refundId, op.seller_id, op.payment_id, op.invoice_id ?? null, op.amount_cents, op.reason ?? null]);
       if (op.invoice_id) {
-        recomputeInvoiceState(db, op.invoice_id);
+        await recomputeInvoiceState(db, op.invoice_id);
         touchedInvoices.add(op.invoice_id);
       }
       break;
     }
 
     case 'post_adjustment': {
-      const info = db
-        .prepare(
+      const info = await db.run(
           `UPDATE adjustments SET status = 'posted'
-            WHERE id = ? AND seller_id = ? AND status = 'approved'`,
-        )
-        .run(op.adjustment_id, op.seller_id);
+            WHERE id = ? AND seller_id = ? AND status = 'approved'`, [op.adjustment_id, op.seller_id]);
       if (info.changes === 0) {
         // Revalidation ran moments ago; reaching here means the adjustment
         // was mutated concurrently. Abort the whole transaction.
@@ -608,11 +531,9 @@ function applyEffects(
           `adjustment '${op.adjustment_id}' is no longer in an approved state`,
         );
       }
-      const adj = db
-        .prepare(`SELECT invoice_id FROM adjustments WHERE id = ?`)
-        .get(op.adjustment_id) as { invoice_id: string | null };
+      const adj = await db.get(`SELECT invoice_id FROM adjustments WHERE id = ?`, [op.adjustment_id]) as { invoice_id: string | null };
       if (adj.invoice_id) {
-        recomputeInvoiceState(db, adj.invoice_id);
+        await recomputeInvoiceState(db, adj.invoice_id);
         touchedInvoices.add(adj.invoice_id);
       }
       break;
@@ -653,30 +574,27 @@ export interface PostResult {
  * survives — an allocation cannot exist without its journal entry, and a
  * balance cannot move without both.
  */
-export function postLedgerUpdate(
-  db: Db,
+export async function postLedgerUpdate(
+  db: SqlDb,
   actor: Actor,
   proposalId: string,
   options: PostOptions = {},
-): PostResult {
-  return immediateTransaction(db, () => {
-    const proposal = getProposal(db, proposalId);
+): Promise<PostResult>{
+  return db.transaction(async (tx) => {
+    const proposal = await getProposal(tx, proposalId);
     if (!proposal) {
       throw new LedgerError('not_found', `proposal '${proposalId}' not found`);
     }
-    assertSellerAccess(db, proposal.seller_id, actor);
+    await assertSellerAccess(tx, proposal.seller_id, actor);
 
     // ── 1. Idempotent replay ────────────────────────────────────────────
     const replayKey = options.idempotencyKey ?? proposal.idempotency_key;
     if (replayKey) {
-      const prior = db
-        .prepare(
+      const prior = await tx.get(
           `SELECT id FROM journal_entries
-            WHERE seller_id = ? AND idempotency_key = ?`,
-        )
-        .get(proposal.seller_id, replayKey) as { id: string } | undefined;
+            WHERE seller_id = ? AND idempotency_key = ?`, [proposal.seller_id, replayKey]) as { id: string } | undefined;
       if (prior) {
-        const refreshed = getProposal(db, proposalId);
+        const refreshed = await getProposal(tx, proposalId);
         return {
           proposal: refreshed ?? proposal,
           entry_id: prior.id,
@@ -702,7 +620,7 @@ export function postLedgerUpdate(
     }
 
     // ── 2. Authorisation ────────────────────────────────────────────────
-    assertCanPost(db, proposal.seller_id, actor);
+    await assertCanPost(tx, proposal.seller_id, actor);
 
     let approvalBasis: 'manual' | 'auto_rule' | null = null;
     let autoRuleId: string | null = null;
@@ -714,12 +632,10 @@ export function postLedgerUpdate(
       // Not approved: the only other way to post is an enabled exact-match
       // auto-post rule that explicitly authorises this operation.
       const op = JSON.parse(
-        (db
-          .prepare(`SELECT operation_json FROM ledger_proposals WHERE id = ?`)
-          .get(proposalId) as { operation_json: string }).operation_json,
+        (await tx.get(`SELECT operation_json FROM ledger_proposals WHERE id = ?`, [proposalId]) as { operation_json: string }).operation_json,
       ) as OperationInput;
-      const planned = planOperation(db, op);
-      const match = findMatchingAutoPostRule(db, {
+      const planned = await planOperation(tx, op);
+      const match = await findMatchingAutoPostRule(tx, {
         seller_id: proposal.seller_id,
         proposal_kind: planned.proposal_kind,
         fields: planned.auto_fields,
@@ -741,19 +657,17 @@ export function postLedgerUpdate(
 
     // ── 3 & 4. Re-plan and revalidate ───────────────────────────────────
     const operationJson = (
-      db
-        .prepare(`SELECT operation_json FROM ledger_proposals WHERE id = ?`)
-        .get(proposalId) as { operation_json: string }
+      await tx.get(`SELECT operation_json FROM ledger_proposals WHERE id = ?`, [proposalId]) as { operation_json: string }
     ).operation_json;
     const op = JSON.parse(operationJson) as OperationInput;
-    const planned = planOperation(db, op);
-    revalidate(db, proposal.expected);
+    const planned = await planOperation(tx, op);
+    await revalidate(tx, proposal.expected);
 
     // ── 5, 6, 7. Effects, journal, audit ────────────────────────────────
-    const syncState = initialSyncStateForSeller(db, proposal.seller_id);
+    const syncState = await initialSyncStateForSeller(tx, proposal.seller_id);
     const now = new Date().toISOString();
 
-    const entryId = insertPostedEntry(db, {
+    const entryId = await insertPostedEntry(tx, {
       seller_id: proposal.seller_id,
       entry_date: planned.entry_date,
       memo: planned.memo,
@@ -769,30 +683,21 @@ export function postLedgerUpdate(
       external_sync_state: syncState,
     });
 
-    const touchedInvoices = applyEffects(
-      db,
+    const touchedInvoices = await applyEffects(
+      tx,
       op,
       planned.source_event_id,
       entryId,
     );
 
-    db.prepare(
+    await tx.run(
       `UPDATE ledger_proposals
           SET status = 'posted', posted_entry_id = ?, approved_by = COALESCE(approved_by, ?),
               approved_at = COALESCE(approved_at, ?), approval_basis = ?,
               auto_rule_id = ?, auto_rule_match_json = ?
-        WHERE id = ?`,
-    ).run(
-      entryId,
-      approvalBasis === 'auto_rule' ? actor.id : null,
-      approvalBasis === 'auto_rule' ? now : null,
-      approvalBasis,
-      autoRuleId,
-      autoMatchJson,
-      proposalId,
-    );
+        WHERE id = ?`, [entryId, approvalBasis === 'auto_rule' ? actor.id : null, approvalBasis === 'auto_rule' ? now : null, approvalBasis, autoRuleId, autoMatchJson, proposalId]);
 
-    writeAuditEvent(db, {
+    await writeAuditEvent(tx, {
       seller_id: proposal.seller_id,
       actor,
       action: 'ledger_entry.posted',
@@ -819,14 +724,12 @@ export function postLedgerUpdate(
     // the same transaction as the posting that settled them.
     const reminders: PostResult['reminders'] = [];
     for (const invoiceId of touchedInvoices) {
-      const invoice = db
-        .prepare(`SELECT * FROM invoices WHERE id = ?`)
-        .get(invoiceId) as Parameters<typeof recheckReminderEligibility>[1] | undefined;
+      const invoice = await tx.get(`SELECT * FROM invoices WHERE id = ?`, [invoiceId]) as Parameters<typeof recheckReminderEligibility>[1] | undefined;
       if (!invoice) continue;
-      const result = recheckReminderEligibility(db, invoice);
+      const result = await recheckReminderEligibility(tx, invoice);
       if (result.suppressed.length > 0 || result.reinstated.length > 0) {
         reminders.push(result);
-        writeAuditEvent(db, {
+        await writeAuditEvent(tx, {
           seller_id: proposal.seller_id,
           actor,
           action: 'reminders.rechecked',
@@ -837,7 +740,7 @@ export function postLedgerUpdate(
       }
     }
 
-    const posted = getProposal(db, proposalId);
+    const posted = await getProposal(tx, proposalId);
     if (!posted) throw new LedgerError('not_found', 'proposal vanished after post');
 
     return { proposal: posted, entry_id: entryId, replayed: false, reminders };
@@ -866,16 +769,14 @@ export interface ReverseResult {
  * linked reversals and replacement entries" means — you reverse, then post a
  * corrected entry, rather than stacking reversals.
  */
-export function reverseLedgerEntry(
-  db: Db,
+export async function reverseLedgerEntry(
+  db: SqlDb,
   actor: Actor,
   entryId: string,
   reason: string,
-): ReverseResult {
-  return immediateTransaction(db, () => {
-    const original = db
-      .prepare(`SELECT * FROM journal_entries WHERE id = ?`)
-      .get(entryId) as
+): Promise<ReverseResult>{
+  return db.transaction(async (tx) => {
+    const original = await tx.get(`SELECT * FROM journal_entries WHERE id = ?`, [entryId]) as
       | {
           id: string;
           seller_id: string;
@@ -891,8 +792,8 @@ export function reverseLedgerEntry(
     if (!original) {
       throw new LedgerError('not_found', `journal entry '${entryId}' not found`);
     }
-    assertSellerAccess(db, original.seller_id, actor);
-    assertCanPost(db, original.seller_id, actor);
+    await assertSellerAccess(tx, original.seller_id, actor);
+    await assertCanPost(tx, original.seller_id, actor);
 
     if (!reason || reason.trim() === '') {
       throw new LedgerError(
@@ -902,17 +803,14 @@ export function reverseLedgerEntry(
     }
 
     // Guard rails, then the plan.
-    const plan = planReversal(db, original.seller_id, entryId);
+    const plan = await planReversal(tx, original.seller_id, entryId);
 
     // A payment with live allocations cannot be reversed: the allocation
     // postings depend on it. Those must be reversed first.
     if (original.source_type === 'record_payment') {
-      const active = db
-        .prepare(
+      const active = await tx.get(
           `SELECT COUNT(*) AS n FROM payment_allocations
-            WHERE payment_id = ? AND status = 'active'`,
-        )
-        .get(original.source_id) as { n: number };
+            WHERE payment_id = ? AND status = 'active'`, [original.source_id]) as { n: number };
       if (active.n > 0) {
         throw new LedgerError(
           'conflict',
@@ -923,15 +821,12 @@ export function reverseLedgerEntry(
     }
 
     const now = new Date().toISOString();
-    const syncState = initialSyncStateForSeller(db, original.seller_id);
+    const syncState = await initialSyncStateForSeller(tx, original.seller_id);
 
     // Build the reversal entry's lines.
-    const built = plan.lines.map<ProposedLine>((line) => {
-      const account = db
-        .prepare(
-          `SELECT id, code, name FROM gl_accounts WHERE seller_id = ? AND id = ?`,
-        )
-        .get(original.seller_id, line.account_id) as {
+    const built: ProposedLine[] = await Promise.all(plan.lines.map(async (line) => {
+      const account = await tx.get(
+          `SELECT id, code, name FROM gl_accounts WHERE seller_id = ? AND id = ?`, [original.seller_id, line.account_id]) as {
         id: string;
         code: string;
         name: string;
@@ -943,10 +838,10 @@ export function reverseLedgerEntry(
         amount_cents: line.amount_cents,
         side: line.side,
         memo: `Reversal: ${reason}`,
-      };
-    });
+      } as ProposedLine;
+    }));
 
-    const reversalEntryId = insertPostedEntry(db, {
+    const reversalEntryId = await insertPostedEntry(tx, {
       seller_id: original.seller_id,
       entry_date: plan.entry_date,
       memo: plan.memo,
@@ -964,18 +859,17 @@ export function reverseLedgerEntry(
 
     // Flip the original. The immutability trigger permits this single
     // transition and nothing else.
-    db.prepare(
-      `UPDATE journal_entries SET status = 'reversed' WHERE id = ?`,
-    ).run(original.id);
+    await tx.run(
+      `UPDATE journal_entries SET status = 'reversed' WHERE id = ?`, [original.id]);
 
     // Undo the subledger effects so derived balances follow the ledger.
-    const touchedInvoices = reverseEffects(
-      db,
+    const touchedInvoices = await reverseEffects(
+      tx,
       original.source_type,
       original.source_id,
     );
 
-    writeAuditEvent(db, {
+    await writeAuditEvent(tx, {
       seller_id: original.seller_id,
       actor,
       action: 'ledger_entry.reversed',
@@ -990,11 +884,9 @@ export function reverseLedgerEntry(
 
     const reminders: ReverseResult['reminders'] = [];
     for (const invoiceId of touchedInvoices) {
-      const invoice = db
-        .prepare(`SELECT * FROM invoices WHERE id = ?`)
-        .get(invoiceId) as Parameters<typeof recheckReminderEligibility>[1] | undefined;
+      const invoice = await tx.get(`SELECT * FROM invoices WHERE id = ?`, [invoiceId]) as Parameters<typeof recheckReminderEligibility>[1] | undefined;
       if (!invoice) continue;
-      const result = recheckReminderEligibility(db, invoice);
+      const result = await recheckReminderEligibility(tx, invoice);
       if (result.suppressed.length > 0 || result.reinstated.length > 0) {
         reminders.push(result);
       }
@@ -1015,102 +907,84 @@ export function reverseLedgerEntry(
  * Rows are never deleted — the schema forbids deleting allocations — so they
  * stay visible as history while dropping out of every derived sum.
  */
-function reverseEffects(
-  db: Db,
+async function reverseEffects(
+  db: SqlDb,
   sourceType: string,
   sourceId: string,
-): string[] {
+): Promise<string[]>{
   const touched: string[] = [];
 
   switch (sourceType) {
     case 'allocate_payment': {
-      const alloc = db
-        .prepare(
-          `SELECT id, payment_id, invoice_id, status FROM payment_allocations WHERE id = ?`,
-        )
-        .get(sourceId) as
+      const alloc = await db.get(
+          `SELECT id, payment_id, invoice_id, status FROM payment_allocations WHERE id = ?`, [sourceId]) as
         | { id: string; payment_id: string; invoice_id: string; status: string }
         | undefined;
       if (!alloc) break;
       if (alloc.status === 'active') {
-        db.prepare(
-          `UPDATE payment_allocations SET status = 'reversed' WHERE id = ?`,
-        ).run(alloc.id);
+        await db.run(
+          `UPDATE payment_allocations SET status = 'reversed' WHERE id = ?`, [alloc.id]);
       }
-      recomputePaymentUnallocated(db, alloc.payment_id);
-      recomputeInvoiceState(db, alloc.invoice_id);
+      await recomputePaymentUnallocated(db, alloc.payment_id);
+      await recomputeInvoiceState(db, alloc.invoice_id);
       touched.push(alloc.invoice_id);
       break;
     }
 
     case 'apply_credit_note': {
-      const note = db
-        .prepare(`SELECT id, invoice_id, status FROM credit_notes WHERE id = ?`)
-        .get(sourceId) as
+      const note = await db.get(`SELECT id, invoice_id, status FROM credit_notes WHERE id = ?`, [sourceId]) as
         | { id: string; invoice_id: string | null; status: string }
         | undefined;
       if (!note) break;
       if (note.status === 'applied') {
-        db.prepare(`UPDATE credit_notes SET status = 'reversed' WHERE id = ?`).run(
-          note.id,
-        );
+        await db.run(`UPDATE credit_notes SET status = 'reversed' WHERE id = ?`, [note.id]);
       }
       if (note.invoice_id) {
-        recomputeInvoiceState(db, note.invoice_id);
+        await recomputeInvoiceState(db, note.invoice_id);
         touched.push(note.invoice_id);
       }
       break;
     }
 
     case 'record_refund': {
-      const refund = db
-        .prepare(`SELECT id, invoice_id, status FROM refunds WHERE id = ?`)
-        .get(sourceId) as
+      const refund = await db.get(`SELECT id, invoice_id, status FROM refunds WHERE id = ?`, [sourceId]) as
         | { id: string; invoice_id: string | null; status: string }
         | undefined;
       if (!refund) break;
       if (refund.status === 'refunded') {
-        db.prepare(`UPDATE refunds SET status = 'reversed' WHERE id = ?`).run(
-          refund.id,
-        );
+        await db.run(`UPDATE refunds SET status = 'reversed' WHERE id = ?`, [refund.id]);
       }
       if (refund.invoice_id) {
-        recomputeInvoiceState(db, refund.invoice_id);
+        await recomputeInvoiceState(db, refund.invoice_id);
         touched.push(refund.invoice_id);
       }
       break;
     }
 
     case 'record_fee': {
-      db.prepare(
-        `UPDATE fees SET status = 'reversed' WHERE id = ? AND status = 'charged'`,
-      ).run(sourceId);
+      await db.run(
+        `UPDATE fees SET status = 'reversed' WHERE id = ? AND status = 'charged'`, [sourceId]);
       break;
     }
 
     case 'record_payment': {
       // Safe: the caller already verified there are no active allocations.
-      db.prepare(
-        `UPDATE payments SET status = 'reversed' WHERE id = ? AND status = 'confirmed'`,
-      ).run(sourceId);
-      recomputePaymentUnallocated(db, sourceId);
+      await db.run(
+        `UPDATE payments SET status = 'reversed' WHERE id = ? AND status = 'confirmed'`, [sourceId]);
+      await recomputePaymentUnallocated(db, sourceId);
       break;
     }
 
     case 'post_adjustment': {
-      const adj = db
-        .prepare(`SELECT id, invoice_id, status FROM adjustments WHERE id = ?`)
-        .get(sourceId) as
+      const adj = await db.get(`SELECT id, invoice_id, status FROM adjustments WHERE id = ?`, [sourceId]) as
         | { id: string; invoice_id: string | null; status: string }
         | undefined;
       if (!adj) break;
       if (adj.status === 'posted') {
-        db.prepare(`UPDATE adjustments SET status = 'reversed' WHERE id = ?`).run(
-          adj.id,
-        );
+        await db.run(`UPDATE adjustments SET status = 'reversed' WHERE id = ?`, [adj.id]);
       }
       if (adj.invoice_id) {
-        recomputeInvoiceState(db, adj.invoice_id);
+        await recomputeInvoiceState(db, adj.invoice_id);
         touched.push(adj.invoice_id);
       }
       break;
@@ -1120,13 +994,10 @@ function reverseEffects(
       // Voiding the invoice is the subledger consequence of reversing an
       // issuance. Refuse if anything has since been applied to it, because
       // those entries would be left pointing at a void invoice.
-      const active = db
-        .prepare(
+      const active = await db.get(
           `SELECT
              (SELECT COUNT(*) FROM payment_allocations WHERE invoice_id = ? AND status='active') AS allocs,
-             (SELECT COUNT(*) FROM credit_notes WHERE invoice_id = ? AND status='applied') AS credits`,
-        )
-        .get(sourceId, sourceId) as { allocs: number; credits: number };
+             (SELECT COUNT(*) FROM credit_notes WHERE invoice_id = ? AND status='applied') AS credits`, [sourceId, sourceId]) as { allocs: number; credits: number };
       if (active.allocs > 0 || active.credits > 0) {
         throw new LedgerError(
           'conflict',
@@ -1134,7 +1005,7 @@ function reverseEffects(
             'have been applied to it; reverse those first',
         );
       }
-      db.prepare(`UPDATE invoices SET status = 'void' WHERE id = ?`).run(sourceId);
+      await db.run(`UPDATE invoices SET status = 'void' WHERE id = ?`, [sourceId]);
       touched.push(sourceId);
       break;
     }
@@ -1147,19 +1018,20 @@ function reverseEffects(
 }
 
 /** Entries available to reverse, for the UI's reversal picker. */
-export function listReversibleEntries(db: Db, sellerId: string) {
-  return listJournalEntries(db, { sellerId, limit: 200 }).filter(
+export async function listReversibleEntries(db: SqlDb, sellerId: string) {
+  const entries = await listJournalEntries(db, { sellerId, limit: 200 });
+  return entries.filter(
     (e) => e.status === 'posted' && e.entry_kind === 'standard',
   );
 }
 
 /** Read one entry, scoped to the actor. */
-export function getEntryForActor(db: Db, actor: Actor, entryId: string) {
-  const entry = getJournalEntry(db, entryId);
+export async function getEntryForActor(db: SqlDb, actor: Actor, entryId: string) {
+  const entry = await getJournalEntry(db, entryId);
   if (!entry) {
     throw new LedgerError('not_found', `journal entry '${entryId}' not found`);
   }
-  assertSellerAccess(db, entry.seller_id, actor);
+  await assertSellerAccess(db, entry.seller_id, actor);
   return entry;
 }
 
@@ -1168,15 +1040,15 @@ export function getEntryForActor(db: Db, actor: Actor, entryId: string) {
  * Surfaced by the reconciliation interface rather than only used internally,
  * because a divergence here means a code path bypassed the recompute.
  */
-export function auditPaymentConsistency(db: Db, paymentId: string) {
-  const payment = requirePayment(
+export async function auditPaymentConsistency(db: SqlDb, paymentId: string) {
+  const payment = await requirePayment(
     db,
-    (db.prepare(`SELECT seller_id FROM payments WHERE id = ?`).get(paymentId) as {
+    (await db.get(`SELECT seller_id FROM payments WHERE id = ?`, [paymentId]) as {
       seller_id: string;
     }).seller_id,
     paymentId,
   );
-  const derived = deriveUnallocatedCents(db, paymentId);
+  const derived = await deriveUnallocatedCents(db, paymentId);
   return {
     payment_id: paymentId,
     cached_unallocated_cents: payment.unallocated_cents,

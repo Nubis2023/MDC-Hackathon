@@ -35,14 +35,14 @@ import {
   recordPayment,
 } from './helpers';
 
-describe('reversals', () => {
-  it('reverses an entry by posting the exact negation', () => {
-    const { db, sellerId, invoiceId } = makeTestDb();
-    const entryId = issueInvoice(db, sellerId, invoiceId);
+describe('reversals', async () => {
+  it('reverses an entry by posting the exact negation', async () => {
+    const { db, sellerId, invoiceId } = await makeTestDb();
+    const entryId = await issueInvoice(db, sellerId, invoiceId);
 
-    const original = getJournalEntry(db, entryId)!;
-    const result = reverseLedgerEntry(db, APPROVER, entryId, 'issued in error');
-    const reversal = getJournalEntry(db, result.reversal_entry_id)!;
+    const original = await getJournalEntry(db, entryId)!;
+    const result = await reverseLedgerEntry(db, APPROVER, entryId, 'issued in error');
+    const reversal = await getJournalEntry(db, result.reversal_entry_id)!;
 
     expect(reversal.entry_kind).toBe('reversal');
     expect(reversal.reversal_of).toBe(entryId);
@@ -62,14 +62,14 @@ describe('reversals', () => {
     }
   });
 
-  it('marks the original as reversed without editing it', () => {
-    const { db, sellerId, invoiceId } = makeTestDb();
-    const entryId = issueInvoice(db, sellerId, invoiceId);
-    const before = getJournalEntry(db, entryId)!;
+  it('marks the original as reversed without editing it', async () => {
+    const { db, sellerId, invoiceId } = await makeTestDb();
+    const entryId = await issueInvoice(db, sellerId, invoiceId);
+    const before = await getJournalEntry(db, entryId)!;
 
-    reverseLedgerEntry(db, APPROVER, entryId, 'issued in error');
+    await reverseLedgerEntry(db, APPROVER, entryId, 'issued in error');
 
-    const after = getJournalEntry(db, entryId)!;
+    const after = await getJournalEntry(db, entryId)!;
     expect(after.status).toBe('reversed');
 
     // Everything else about the original is untouched — same lines, same
@@ -80,102 +80,85 @@ describe('reversals', () => {
     expect(after.total_debit_cents).toBe(before.total_debit_cents);
   });
 
-  it('forbids editing the lines of a posted entry', () => {
-    const { db, sellerId, invoiceId } = makeTestDb();
-    const entryId = issueInvoice(db, sellerId, invoiceId);
+  it('forbids editing the lines of a posted entry', async () => {
+    const { db, sellerId, invoiceId } = await makeTestDb();
+    const entryId = await issueInvoice(db, sellerId, invoiceId);
 
-    expect(() =>
-      db
-        .prepare(`UPDATE journal_lines SET amount_cents = 999 WHERE entry_id = ?`)
-        .run(entryId),
-    ).toThrowError(/immutable/);
+    await expect(db.run(`UPDATE journal_lines SET amount_cents = 999 WHERE entry_id = ?`, [entryId]),).rejects.toThrowError(/immutable/);
   });
 
-  it('forbids deleting the lines of a posted entry', () => {
-    const { db, sellerId, invoiceId } = makeTestDb();
-    const entryId = issueInvoice(db, sellerId, invoiceId);
+  it('forbids deleting the lines of a posted entry', async () => {
+    const { db, sellerId, invoiceId } = await makeTestDb();
+    const entryId = await issueInvoice(db, sellerId, invoiceId);
 
-    expect(() =>
-      db.prepare(`DELETE FROM journal_lines WHERE entry_id = ?`).run(entryId),
-    ).toThrowError(/immutable/);
+    await expect(db.run(`DELETE FROM journal_lines WHERE entry_id = ?`, [entryId]),).rejects.toThrowError(/immutable/);
   });
 
-  it('forbids editing the memo of a posted entry', () => {
-    const { db, sellerId, invoiceId } = makeTestDb();
-    const entryId = issueInvoice(db, sellerId, invoiceId);
+  it('forbids editing the memo of a posted entry', async () => {
+    const { db, sellerId, invoiceId } = await makeTestDb();
+    const entryId = await issueInvoice(db, sellerId, invoiceId);
 
-    expect(() =>
-      db
-        .prepare(`UPDATE journal_entries SET memo = 'tampered' WHERE id = ?`)
-        .run(entryId),
-    ).toThrowError(/immutable/);
+    await expect(db.run(`UPDATE journal_entries SET memo = 'tampered' WHERE id = ?`, [entryId]),).rejects.toThrowError(/immutable/);
   });
 
-  it('removes the reversed effect from the derived invoice balance', () => {
-    const { db, sellerId, invoiceId } = makeTestDb();
-    const issueEntry = issueInvoice(db, sellerId, invoiceId);
-    const paymentId = recordPayment(db, sellerId, 40000, 'REF-REV-ALLOC');
-    const allocEntry = allocatePayment(db, sellerId, paymentId, invoiceId, 40000);
+  it('removes the reversed effect from the derived invoice balance', async () => {
+    const { db, sellerId, invoiceId } = await makeTestDb();
+    const issueEntry = await issueInvoice(db, sellerId, invoiceId);
+    const paymentId = await recordPayment(db, sellerId, 40000, 'REF-REV-ALLOC');
+    const allocEntry = await allocatePayment(db, sellerId, paymentId, invoiceId, 40000);
 
-    expect(deriveInvoiceState(db, invoiceId).balance_cents).toBe(60000);
+    expect((await deriveInvoiceState(db, invoiceId)).balance_cents).toBe(60000);
 
-    reverseLedgerEntry(db, APPROVER, allocEntry, 'applied to wrong invoice');
+    await reverseLedgerEntry(db, APPROVER, allocEntry, 'applied to wrong invoice');
 
     // The allocation dropped out, so the invoice is back to its full balance.
-    expect(deriveInvoiceState(db, invoiceId).balance_cents).toBe(100000);
+    expect((await deriveInvoiceState(db, invoiceId)).balance_cents).toBe(100000);
     // And the payment is unallocated again.
-    expect(deriveUnallocatedCents(db, paymentId)).toBe(40000);
+    expect(await deriveUnallocatedCents(db, paymentId)).toBe(40000);
     expect(issueEntry).toBeTruthy();
   });
 
-  it('refuses to reverse a reversal', () => {
-    const { db, sellerId, invoiceId } = makeTestDb();
-    const entryId = issueInvoice(db, sellerId, invoiceId);
-    const result = reverseLedgerEntry(db, APPROVER, entryId, 'issued in error');
+  it('refuses to reverse a reversal', async () => {
+    const { db, sellerId, invoiceId } = await makeTestDb();
+    const entryId = await issueInvoice(db, sellerId, invoiceId);
+    const result = await reverseLedgerEntry(db, APPROVER, entryId, 'issued in error');
 
-    expect(() =>
-      reverseLedgerEntry(db, APPROVER, result.reversal_entry_id, 'undo the undo'),
-    ).toThrowError(/itself a reversal/);
+    await expect(reverseLedgerEntry(db, APPROVER, result.reversal_entry_id, 'undo the undo'),).rejects.toThrowError(/itself a reversal/);
   });
 
-  it('refuses to reverse the same entry twice', () => {
-    const { db, sellerId, invoiceId } = makeTestDb();
-    const entryId = issueInvoice(db, sellerId, invoiceId);
-    reverseLedgerEntry(db, APPROVER, entryId, 'first');
+  it('refuses to reverse the same entry twice', async () => {
+    const { db, sellerId, invoiceId } = await makeTestDb();
+    const entryId = await issueInvoice(db, sellerId, invoiceId);
+    await reverseLedgerEntry(db, APPROVER, entryId, 'first');
 
-    expect(() =>
-      reverseLedgerEntry(db, APPROVER, entryId, 'second'),
-    ).toThrowError(/already been reversed/);
+    await expect(reverseLedgerEntry(db, APPROVER, entryId, 'second'),).rejects.toThrowError(/already been reversed/);
   });
 
-  it('requires a reason to reverse', () => {
-    const { db, sellerId, invoiceId } = makeTestDb();
-    const entryId = issueInvoice(db, sellerId, invoiceId);
+  it('requires a reason to reverse', async () => {
+    const { db, sellerId, invoiceId } = await makeTestDb();
+    const entryId = await issueInvoice(db, sellerId, invoiceId);
 
-    expect(() => reverseLedgerEntry(db, APPROVER, entryId, '')).toThrowError(
+    await expect(reverseLedgerEntry(db, APPROVER, entryId, '')).rejects.toThrowError(
       /reason is required/,
     );
-    expect(() => reverseLedgerEntry(db, APPROVER, entryId, '   ')).toThrowError(
+    await expect(reverseLedgerEntry(db, APPROVER, entryId, '   ')).rejects.toThrowError(
       /reason is required/,
     );
   });
 
-  it('supports a corrected replacement entry after a reversal', () => {
-    const { db, sellerId, invoiceId } = makeTestDb();
+  it('supports a corrected replacement entry after a reversal', async () => {
+    const { db, sellerId, invoiceId } = await makeTestDb();
 
     // Record a payment in the wrong amount, then correct it.
-    const wrongId = recordPayment(db, sellerId, 5000, 'REF-CORRECT');
+    const wrongId = await recordPayment(db, sellerId, 5000, 'REF-CORRECT');
 
-    const wrongEntry = db
-      .prepare(
+    const wrongEntry = await db.get(
         `SELECT id FROM journal_entries
-          WHERE seller_id = ? AND source_type = 'record_payment'`,
-      )
-      .get(sellerId) as { id: string };
-    reverseLedgerEntry(db, OWNER, wrongEntry.id, 'wrong amount recorded');
+          WHERE seller_id = ? AND source_type = 'record_payment'`, [sellerId]) as { id: string };
+    await reverseLedgerEntry(db, OWNER, wrongEntry.id, 'wrong amount recorded');
 
     // Post the corrected payment as a new business event.
-    const correctedProposal = proposeLedgerUpdate(db, AGENT, {
+    const correctedProposal = await proposeLedgerUpdate(db, AGENT, {
       kind: 'record_payment',
       seller_id: sellerId,
       amount_cents: 8000,
@@ -183,144 +166,126 @@ describe('reversals', () => {
       reference: 'REF-CORRECT-V2',
       payer_name: 'Test Customer',
     });
-    approveLedgerUpdate(db, APPROVER, correctedProposal.id, { reason: 'correction' });
-    postLedgerUpdate(db, APPROVER, correctedProposal.id);
+    await approveLedgerUpdate(db, APPROVER, correctedProposal.id, { reason: 'correction' });
+    await postLedgerUpdate(db, APPROVER, correctedProposal.id);
 
-    const entries = db
-      .prepare(
+    const entries = await db.get(
         `SELECT COUNT(*) AS n FROM journal_entries
           WHERE seller_id = ? AND source_type = 'record_payment'
-            AND status = 'posted'`,
-      )
-      .get(sellerId) as { n: number };
+            AND status = 'posted'`, [sellerId]) as { n: number };
     expect(entries.n).toBe(1);
 
-    const wrong = getJournalEntry(db, wrongEntry.id)!;
+    const wrong = await getJournalEntry(db, wrongEntry.id)!;
     expect(wrong.status).toBe('reversed');
 
     // The replacement is linked to the original by source, not by a foreign
     // key, so both remain readable.
-    const reversal = db
-      .prepare(
+    const reversal = await db.get(
         `SELECT COUNT(*) AS n FROM journal_entries
-          WHERE seller_id = ? AND reversal_of = ?`,
-      )
-      .get(sellerId, wrongEntry.id) as { n: number };
+          WHERE seller_id = ? AND reversal_of = ?`, [sellerId, wrongEntry.id]) as { n: number };
     expect(reversal.n).toBe(1);
     expect(wrongId).toBeTruthy();
   });
 
-  it('keeps the trial balance at zero after a reversal', () => {
-    const { db, sellerId, invoiceId } = makeTestDb();
-    issueInvoice(db, sellerId, invoiceId);
-    const paymentId = recordPayment(db, sellerId, 30000, 'REF-REV-BAL');
-    const allocEntry = allocatePayment(db, sellerId, paymentId, invoiceId, 30000);
+  it('keeps the trial balance at zero after a reversal', async () => {
+    const { db, sellerId, invoiceId } = await makeTestDb();
+    await issueInvoice(db, sellerId, invoiceId);
+    const paymentId = await recordPayment(db, sellerId, 30000, 'REF-REV-BAL');
+    const allocEntry = await allocatePayment(db, sellerId, paymentId, invoiceId, 30000);
 
-    reverseLedgerEntry(db, APPROVER, allocEntry, 'wrong invoice');
+    await reverseLedgerEntry(db, APPROVER, allocEntry, 'wrong invoice');
 
-    const { summary } = reconcileSeller(db, sellerId);
+    const { summary } = await reconcileSeller(db, sellerId);
     expect(summary.trial_balanced).toBe(true);
     expect(summary.drifted_count).toBe(0);
   });
 
-  it('refuses to reverse a payment that still has active allocations', () => {
-    const { db, sellerId, invoiceId } = makeTestDb();
-    issueInvoice(db, sellerId, invoiceId);
-    const paymentId = recordPayment(db, sellerId, 20000, 'REF-REV-PAY');
-    allocatePayment(db, sellerId, paymentId, invoiceId, 20000);
+  it('refuses to reverse a payment that still has active allocations', async () => {
+    const { db, sellerId, invoiceId } = await makeTestDb();
+    await issueInvoice(db, sellerId, invoiceId);
+    const paymentId = await recordPayment(db, sellerId, 20000, 'REF-REV-PAY');
+    await allocatePayment(db, sellerId, paymentId, invoiceId, 20000);
 
-    const paymentEntry = db
-      .prepare(
+    const paymentEntry = await db.get(
         `SELECT id FROM journal_entries
-          WHERE seller_id = ? AND source_type = 'record_payment'`,
-      )
-      .get(sellerId) as { id: string };
+          WHERE seller_id = ? AND source_type = 'record_payment'`, [sellerId]) as { id: string };
 
-    expect(() =>
-      reverseLedgerEntry(db, APPROVER, paymentEntry.id, 'bad payment'),
-    ).toThrowError(/active allocation/);
+    await expect(reverseLedgerEntry(db, APPROVER, paymentEntry.id, 'bad payment'),).rejects.toThrowError(/active allocation/);
   });
 
-  it('reverses a credit note and restores the invoice balance', () => {
-    const { db, sellerId, invoiceId } = makeTestDb();
-    issueInvoice(db, sellerId, invoiceId);
+  it('reverses a credit note and restores the invoice balance', async () => {
+    const { db, sellerId, invoiceId } = await makeTestDb();
+    await issueInvoice(db, sellerId, invoiceId);
 
-    const proposal = proposeLedgerUpdate(db, BOOKKEEPER, {
+    const proposal = await proposeLedgerUpdate(db, BOOKKEEPER, {
       kind: 'apply_credit_note',
       seller_id: sellerId,
       invoice_id: invoiceId,
       amount_cents: 25000,
       reason: 'short shipment',
     });
-    approveLedgerUpdate(db, APPROVER, proposal.id, { reason: 'test' });
-    postLedgerUpdate(db, APPROVER, proposal.id);
+    await approveLedgerUpdate(db, APPROVER, proposal.id, { reason: 'test' });
+    await postLedgerUpdate(db, APPROVER, proposal.id);
 
-    expect(deriveInvoiceState(db, invoiceId).balance_cents).toBe(75000);
+    expect((await deriveInvoiceState(db, invoiceId)).balance_cents).toBe(75000);
 
-    const cnEntry = db
-      .prepare(
+    const cnEntry = await db.get(
         `SELECT id FROM journal_entries
-          WHERE seller_id = ? AND source_type = 'apply_credit_note'`,
-      )
-      .get(sellerId) as { id: string };
+          WHERE seller_id = ? AND source_type = 'apply_credit_note'`, [sellerId]) as { id: string };
 
-    reverseLedgerEntry(db, APPROVER, cnEntry.id, 'credit note was wrong');
+    await reverseLedgerEntry(db, APPROVER, cnEntry.id, 'credit note was wrong');
 
-    expect(deriveInvoiceState(db, invoiceId).balance_cents).toBe(100000);
-    expect(deriveInvoiceState(db, invoiceId).status).toBe('open');
+    expect((await deriveInvoiceState(db, invoiceId)).balance_cents).toBe(100000);
+    expect((await deriveInvoiceState(db, invoiceId)).status).toBe('open');
   });
 
-  it('records both the posting and its reversal in the audit trail', () => {
-    const { db, sellerId, invoiceId } = makeTestDb();
-    const entryId = issueInvoice(db, sellerId, invoiceId);
-    reverseLedgerEntry(db, APPROVER, entryId, 'issued in error');
+  it('records both the posting and its reversal in the audit trail', async () => {
+    const { db, sellerId, invoiceId } = await makeTestDb();
+    const entryId = await issueInvoice(db, sellerId, invoiceId);
+    await reverseLedgerEntry(db, APPROVER, entryId, 'issued in error');
 
-    const actions = listAuditEvents(db, sellerId).map((e) => e.action);
+    const actions = (await listAuditEvents(db, sellerId)).map((e) => e.action);
     expect(actions).toContain('ledger_entry.posted');
     expect(actions).toContain('ledger_entry.reversed');
   });
 
-  it('refuses to reverse an unposted entry', () => {
-    const { db, sellerId, invoiceId } = makeTestDb();
-    issueInvoice(db, sellerId, invoiceId);
+  it('refuses to reverse an unposted entry', async () => {
+    const { db, sellerId, invoiceId } = await makeTestDb();
+    await issueInvoice(db, sellerId, invoiceId);
 
-    expect(() =>
-      reverseLedgerEntry(db, APPROVER, 'je_does_not_exist', 'nope'),
-    ).toThrowError(/not found/);
+    await expect(reverseLedgerEntry(db, APPROVER, 'je_does_not_exist', 'nope'),).rejects.toThrowError(/not found/);
   });
 
-  it('preserves the reversal link in the reversal entry', () => {
-    const { db, sellerId, invoiceId } = makeTestDb();
-    const entryId = issueInvoice(db, sellerId, invoiceId);
-    const result = reverseLedgerEntry(db, APPROVER, entryId, 'issued in error');
+  it('preserves the reversal link in the reversal entry', async () => {
+    const { db, sellerId, invoiceId } = await makeTestDb();
+    const entryId = await issueInvoice(db, sellerId, invoiceId);
+    const result = await reverseLedgerEntry(db, APPROVER, entryId, 'issued in error');
 
-    const reversal = getJournalEntry(db, result.reversal_entry_id)!;
+    const reversal = await getJournalEntry(db, result.reversal_entry_id)!;
     expect(reversal.source_type).toBe('reverse_entry');
     expect(reversal.source_id).toBe(entryId);
     expect(reversal.reversal_of).toBe(entryId);
     expect(reversal.posted_by).toBe(APPROVER.id);
   });
 
-  it('will not let a reversal be posted against a mismatched seller', () => {
-    const { db, sellerId, invoiceId } = makeTestDb();
-    const entryId = issueInvoice(db, sellerId, invoiceId);
+  it('will not let a reversal be posted against a mismatched seller', async () => {
+    const { db, sellerId, invoiceId } = await makeTestDb();
+    const entryId = await issueInvoice(db, sellerId, invoiceId);
 
-    expect(() =>
-      reverseLedgerEntry(db, OUTSIDER, entryId, 'not my seller'),
-    ).toThrowError(LedgerError);
+    await expect(reverseLedgerEntry(db, OUTSIDER, entryId, 'not my seller'),).rejects.toThrowError(LedgerError);
   });
 
-  it('keeps invoice status consistent after reversing the settling allocation', () => {
-    const { db, sellerId, invoiceId } = makeTestDb();
-    issueInvoice(db, sellerId, invoiceId);
-    const paymentId = recordPayment(db, sellerId, 100000, 'REF-REV-STATUS');
-    const allocEntry = allocatePayment(db, sellerId, paymentId, invoiceId, 100000);
+  it('keeps invoice status consistent after reversing the settling allocation', async () => {
+    const { db, sellerId, invoiceId } = await makeTestDb();
+    await issueInvoice(db, sellerId, invoiceId);
+    const paymentId = await recordPayment(db, sellerId, 100000, 'REF-REV-STATUS');
+    const allocEntry = await allocatePayment(db, sellerId, paymentId, invoiceId, 100000);
 
-    expect(deriveInvoiceState(db, invoiceId).status).toBe('paid');
+    expect((await deriveInvoiceState(db, invoiceId)).status).toBe('paid');
 
-    reverseLedgerEntry(db, APPROVER, allocEntry, 'payment was for another account');
+    await reverseLedgerEntry(db, APPROVER, allocEntry, 'payment was for another account');
 
-    const after = deriveInvoiceState(db, invoiceId);
+    const after = await deriveInvoiceState(db, invoiceId);
     expect(after.status).toBe('open');
     expect(after.balance_cents).toBe(100000);
   });

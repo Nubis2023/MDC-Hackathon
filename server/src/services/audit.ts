@@ -7,7 +7,7 @@
  * committed.
  */
 
-import type { Db } from '../db';
+import type { SqlDb } from '../db';
 import type { Actor } from '../domain/types';
 import { newId } from './ids';
 
@@ -20,22 +20,12 @@ export interface AuditInput {
   detail?: unknown;
 }
 
-export function writeAuditEvent(db: Db, input: AuditInput): string {
+export async function writeAuditEvent(db: SqlDb, input: AuditInput): Promise<string>{
   const id = newId('aud');
-  db.prepare(
+  await db.run(
     `INSERT INTO audit_events
        (id, seller_id, actor_id, actor_kind, action, entity_type, entity_id, detail_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    id,
-    input.seller_id,
-    input.actor.id,
-    input.actor.kind,
-    input.action,
-    input.entity_type,
-    input.entity_id,
-    input.detail === undefined ? null : JSON.stringify(input.detail),
-  );
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [id, input.seller_id, input.actor.id, input.actor.kind, input.action, input.entity_type, input.entity_id, input.detail === undefined ? null : JSON.stringify(input.detail)]);
   return id;
 }
 
@@ -51,21 +41,18 @@ export interface AuditEventRecord {
   created_at: string;
 }
 
-export function listAuditEvents(
-  db: Db,
+export async function listAuditEvents(
+  db: SqlDb,
   sellerId: string,
   limit = 100,
-): AuditEventRecord[] {
-  const rows = db
-    .prepare(
+): Promise<AuditEventRecord[]>{
+  const rows = await db.all(
       `SELECT id, seller_id, actor_id, actor_kind, action, entity_type,
               entity_id, detail_json, created_at
          FROM audit_events
         WHERE seller_id = ?
         ORDER BY created_at DESC, id DESC
-        LIMIT ?`,
-    )
-    .all(sellerId, limit) as Array<{
+        LIMIT ?`, [sellerId, limit]) as Array<{
     id: string;
     seller_id: string;
     actor_id: string;

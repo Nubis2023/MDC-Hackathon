@@ -16,7 +16,7 @@
  *     enabled exact-match auto-post rule authorises that specific operation
  */
 
-import type { Db } from '../db';
+import type { SqlDb } from '../db';
 import { ZodError, z } from 'zod';
 import { LedgerError, isLedgerError } from '../domain/errors';
 import type { Actor } from '../domain/types';
@@ -215,13 +215,18 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
 ];
 
-export function getToolDefinition(name: string): ToolDefinition | undefined {
+export async function getToolDefinition(name: string): Promise<ToolDefinition | undefined>{
   return TOOL_DEFINITIONS.find((t) => t.name === name);
 }
 
 // ─────────────────────────── error shaping ──────────────────────────────
 
-/** Turn any thrown value into a tool result the agent can act on. */
+/**
+ * Turn any thrown value into a tool result the agent can act on.
+ *
+ * Synchronous: it only inspects the error. An async version would hand callers
+ * a truthy Promise instead of the result object.
+ */
 function toToolError(err: unknown): {
   ok: false;
   error: { code: string; message: string; detail?: unknown };
@@ -283,14 +288,14 @@ export interface ToolCallResult {
  * an agent's capabilities to be described, and describing a capability it
  * does not have would be misleading.
  */
-export function callTool(
-  db: Db,
+export async function callTool(
+  db: SqlDb,
   actor: Actor,
   toolName: string,
   args: unknown,
-): ToolCallResult {
+): Promise<ToolCallResult>{
   try {
-    const definition = getToolDefinition(toolName);
+    const definition = await getToolDefinition(toolName);
     if (!definition) {
       throw new LedgerError('not_found', `unknown tool '${toolName}'`);
     }
@@ -306,7 +311,7 @@ export function callTool(
     switch (toolName as ToolName) {
       case 'preview_ledger_update': {
         const op = operationSchema.parse(input.operation) as OperationInput;
-        const preview = previewLedgerUpdate(db, actor, op);
+        const preview = await previewLedgerUpdate(db, actor, op);
         // Previewing does not persist anything, but the returned lines have
         // already been balance-checked by buildLines.
         return { ok: true, tool: toolName, result: { preview } };
@@ -316,7 +321,7 @@ export function callTool(
         const op = operationSchema.parse(input.operation) as OperationInput;
         const idempotencyKey =
           typeof input.idempotency_key === 'string' ? input.idempotency_key : null;
-        const proposal = proposeLedgerUpdate(db, actor, op, { idempotencyKey });
+        const proposal = await proposeLedgerUpdate(db, actor, op, { idempotencyKey });
         return {
           ok: true,
           tool: toolName,
@@ -339,7 +344,7 @@ export function callTool(
       case 'approve_ledger_update': {
         const proposalId = z.string().min(1).parse(input.proposal_id);
         const reason = typeof input.reason === 'string' ? input.reason : undefined;
-        const proposal = approveLedgerUpdate(
+        const proposal = await approveLedgerUpdate(
           db,
           actor,
           proposalId,
@@ -361,14 +366,11 @@ export function callTool(
         const proposalId = z.string().min(1).parse(input.proposal_id);
         const idempotencyKey =
           typeof input.idempotency_key === 'string' ? input.idempotency_key : null;
-        const postResult: PostResult = postLedgerUpdate(db, actor, proposalId, {
+        const postResult: PostResult = await postLedgerUpdate(db, actor, proposalId, {
           idempotencyKey,
         });
-        const entry = db
-          .prepare(
-            `SELECT id, entry_no, external_sync_state FROM journal_entries WHERE id = ?`,
-          )
-          .get(postResult.entry_id) as {
+        const entry = await db.get(
+            `SELECT id, entry_no, external_sync_state FROM journal_entries WHERE id = ?`, [postResult.entry_id]) as {
           id: string;
           entry_no: number;
           external_sync_state: string;
@@ -394,7 +396,7 @@ export function callTool(
       case 'reverse_ledger_entry': {
         const entryId = z.string().min(1).parse(input.entry_id);
         const reason = z.string().min(1).parse(input.reason);
-        const result = reverseLedgerEntry(db, actor, entryId, reason);
+        const result = await reverseLedgerEntry(db, actor, entryId, reason);
         return {
           ok: true,
           tool: toolName,
@@ -410,7 +412,7 @@ export function callTool(
         throw new LedgerError('not_found', `unknown tool '${toolName}'`);
     }
   } catch (err) {
-    return { ok: false, tool: toolName, error: toToolError(err).error };
+    return { ok: false, tool: toolName, error: (await toToolError(err)).error };
   }
 }
 
@@ -418,15 +420,13 @@ export function callTool(
  * A dry-run plan for a proposal the agent has already raised, so it can
  * explain the effect of something already in flight.
  */
-export function explainProposal(db: Db, actor: Actor, proposalId: string) {
-  const proposal = getProposalForActor(db, actor, proposalId);
+export async function explainProposal(db: SqlDb, actor: Actor, proposalId: string) {
+  const proposal = await getProposalForActor(db, actor, proposalId);
   const op = JSON.parse(
-    (db
-      .prepare(`SELECT operation_json FROM ledger_proposals WHERE id = ?`)
-      .get(proposalId) as { operation_json: string }).operation_json,
+    (await db.get(`SELECT operation_json FROM ledger_proposals WHERE id = ?`, [proposalId]) as { operation_json: string }).operation_json,
   ) as OperationInput;
   // Re-plan against live state so drift between propose and now is visible.
-  const live = planOperation(db, op);
+  const live = await planOperation(db, op);
   return { proposal, live_preview: live.preview };
 }
 

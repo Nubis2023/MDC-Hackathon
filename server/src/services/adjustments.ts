@@ -13,7 +13,7 @@
  * no-self-approval principle that governs proposals.
  */
 
-import type { Db } from '../db';
+import type { SqlDb } from '../db';
 import { LedgerError } from '../domain/errors';
 import type { Actor } from '../domain/types';
 import { assertCanApprove, assertSellerAccess } from './access';
@@ -35,24 +35,19 @@ export interface AdjustmentRecord {
   created_at: string;
 }
 
-export function getAdjustment(
-  db: Db,
+export async function getAdjustment(
+  db: SqlDb,
   sellerId: string,
   adjustmentId: string,
-): AdjustmentRecord | null {
-  const row = db
-    .prepare(`SELECT * FROM adjustments WHERE id = ? AND seller_id = ?`)
-    .get(adjustmentId, sellerId) as AdjustmentRecord | undefined;
+): Promise<AdjustmentRecord | null>{
+  const row = await db.get(`SELECT * FROM adjustments WHERE id = ? AND seller_id = ?`, [adjustmentId, sellerId]) as AdjustmentRecord | undefined;
   return row ?? null;
 }
 
-export function listAdjustments(db: Db, sellerId: string): AdjustmentRecord[] {
-  return db
-    .prepare(
+export async function listAdjustments(db: SqlDb, sellerId: string): Promise<AdjustmentRecord[]>{
+  return await db.all(
       `SELECT * FROM adjustments WHERE seller_id = ?
-        ORDER BY created_at DESC, rowid DESC`,
-    )
-    .all(sellerId) as AdjustmentRecord[];
+        ORDER BY created_at DESC, id DESC`, [sellerId]) as AdjustmentRecord[];
 }
 
 export interface CreateAdjustmentInput {
@@ -64,12 +59,12 @@ export interface CreateAdjustmentInput {
   memo: string;
 }
 
-export function createAdjustment(
-  db: Db,
+export async function createAdjustment(
+  db: SqlDb,
   actor: Actor,
   input: CreateAdjustmentInput,
-): AdjustmentRecord {
-  assertSellerAccess(db, input.seller_id, actor);
+): Promise<AdjustmentRecord>{
+  await assertSellerAccess(db, input.seller_id, actor);
 
   if (!Number.isInteger(input.amount_cents) || input.amount_cents <= 0) {
     throw new LedgerError(
@@ -89,12 +84,9 @@ export function createAdjustment(
 
   // The mapping key must exist for both sides, otherwise the adjustment
   // cannot produce a balanced entry later.
-  const mapping = db
-    .prepare(
+  const mapping = await db.get(
       `SELECT COUNT(*) AS n FROM account_mappings
-        WHERE seller_id = ? AND mapping_key = ?`,
-    )
-    .get(input.seller_id, input.mapping_key) as { n: number };
+        WHERE seller_id = ? AND mapping_key = ?`, [input.seller_id, input.mapping_key]) as { n: number };
   if (mapping.n === 0) {
     throw new LedgerError(
       'validation',
@@ -103,32 +95,20 @@ export function createAdjustment(
   }
 
   if (input.invoice_id) {
-    const invoice = db
-      .prepare(`SELECT id FROM invoices WHERE id = ? AND seller_id = ?`)
-      .get(input.invoice_id, input.seller_id) as { id: string } | undefined;
+    const invoice = await db.get(`SELECT id FROM invoices WHERE id = ? AND seller_id = ?`, [input.invoice_id, input.seller_id]) as { id: string } | undefined;
     if (!invoice) {
       throw new LedgerError('not_found', `invoice '${input.invoice_id}' not found`);
     }
   }
 
   const id = newId('adj');
-  db.prepare(
+  await db.run(
     `INSERT INTO adjustments
        (id, seller_id, invoice_id, amount_cents, direction, mapping_key, memo,
         created_by, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
-  ).run(
-    id,
-    input.seller_id,
-    input.invoice_id ?? null,
-    input.amount_cents,
-    input.direction,
-    input.mapping_key,
-    input.memo,
-    actor.id,
-  );
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')`, [id, input.seller_id, input.invoice_id ?? null, input.amount_cents, input.direction, input.mapping_key, input.memo, actor.id]);
 
-  writeAuditEvent(db, {
+  await writeAuditEvent(db, {
     seller_id: input.seller_id,
     actor,
     action: 'adjustment.created',
@@ -143,19 +123,19 @@ export function createAdjustment(
     },
   });
 
-  const created = getAdjustment(db, input.seller_id, id);
+  const created = await getAdjustment(db, input.seller_id, id);
   if (!created) throw new LedgerError('not_found', 'adjustment vanished');
   return created;
 }
 
 /** Approve a draft adjustment. Human approver, not the creator. */
-export function approveAdjustment(
-  db: Db,
+export async function approveAdjustment(
+  db: SqlDb,
   actor: Actor,
   sellerId: string,
   adjustmentId: string,
-): AdjustmentRecord {
-  const adjustment = getAdjustment(db, sellerId, adjustmentId);
+): Promise<AdjustmentRecord>{
+  const adjustment = await getAdjustment(db, sellerId, adjustmentId);
   if (!adjustment) {
     throw new LedgerError('not_found', `adjustment '${adjustmentId}' not found`);
   }
@@ -172,7 +152,7 @@ export function approveAdjustment(
       'an adjustment cannot be approved by the actor that created it',
     );
   }
-  assertCanApprove(db, sellerId, actor);
+  await assertCanApprove(db, sellerId, actor);
 
   if (adjustment.status === 'approved') return adjustment;
   if (adjustment.status !== 'draft') {
@@ -182,12 +162,11 @@ export function approveAdjustment(
     );
   }
 
-  db.prepare(
+  await db.run(
     `UPDATE adjustments SET status = 'approved', approved_by = ?, approved_at = ?
-      WHERE id = ?`,
-  ).run(actor.id, new Date().toISOString(), adjustmentId);
+      WHERE id = ?`, [actor.id, new Date().toISOString(), adjustmentId]);
 
-  writeAuditEvent(db, {
+  await writeAuditEvent(db, {
     seller_id: sellerId,
     actor,
     action: 'adjustment.approved',
@@ -196,7 +175,7 @@ export function approveAdjustment(
     detail: { approved_by: actor.id },
   });
 
-  const updated = getAdjustment(db, sellerId, adjustmentId);
+  const updated = await getAdjustment(db, sellerId, adjustmentId);
   if (!updated) throw new LedgerError('not_found', 'adjustment vanished');
   return updated;
 }

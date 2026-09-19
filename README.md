@@ -30,35 +30,49 @@ npm run dev:web    # Vite dev server on :5173, proxying /api to :4000
 Other commands:
 
 ```bash
-npm test              # 128 tests across 9 files
+npm test                  # 145 tests across 10 files (in-memory SQLite, ~300ms)
 npm run typecheck
-npm run verify:supabase   # runs the Postgres migration + seed against real Postgres
+npm run verify:supabase   # runs the migration + seed against real Postgres
+npm run test:postgres     # service layer against real Postgres (34 checks)
+npm run test:postgres-http # full HTTP API against real Postgres (29 checks)
 ```
 
 ## Database
 
-Development runs on **SQLite** (`server/data/ledger.db`) via `better-sqlite3`.
-The production target is **Supabase (Postgres)**; the schema is ported and
-verified in [`supabase/`](supabase/README.md):
+The service runs on **either** backend, chosen by connection string rather than
+by `NODE_ENV`:
+
+- **SQLite** (`server/data/ledger.db`) by default — zero setup, used by the
+  test suite and local development.
+- **Postgres / Supabase** when `SUPABASE_DB_URL` is set.
 
 ```bash
-npm run verify:supabase         # migration + seed, against real Postgres
-npm run test:supabase-apply     # apply.mjs over the Postgres wire protocol
-npm run apply:supabase          # apply to your project (needs SUPABASE_DB_URL)
+cp .env.example .env      # then set SUPABASE_DB_URL to point at Postgres
+npm run seed              # seeds whichever backend is selected
+npm start                 # startup logs which database it connected to
 ```
 
-Those first two execute the real DDL against real Postgres and assert every
-trigger, constraint and RLS policy actually fires. See
-[`supabase/README.md`](supabase/README.md) for how to apply the schema and for
-the remaining work to port the service layer — the driver is synchronous
-SQLite and Postgres is async, so that port is not a drop-in swap.
+The service layer is written against a small async interface
+(`server/src/db/sql-db.ts`) with one implementation per backend, so no service
+code knows which database it is talking to. That is what the two Postgres
+suites above verify: the dialect layer, the `?`→`$n` rewriting, `bigint`
+handling, date normalisation, transaction binding and the HTTP routes.
+
+See [`supabase/README.md`](supabase/README.md) for applying the schema to a
+Supabase project and how to verify it.
 
 ## What it does
 
-Records confirmed payments, allocates them to invoices, applies credit notes,
-records fees and refunds, and posts approved adjustments. Every operation
-produces a balanced journal entry built from configured account mappings —
-no service code hardcodes an account code.
+**Places invoices**, records confirmed payments, allocates them to invoices,
+applies credit notes, records fees and refunds, and posts approved
+adjustments. Every operation produces a balanced journal entry built from
+configured account mappings — no service code hardcodes an account code.
+
+Placing an invoice is deliberately two steps. `POST /invoices` creates the
+document and schedules its reminder ladder but does **not** touch the ledger;
+putting the receivable on the books is a separate `issue_invoice` proposal that
+goes through the normal approve → post gate. That keeps the accounting entry
+reviewable instead of a side effect of creating a document.
 
 The books are seller-scoped. Two sellers are seeded with different
 configurations, and an actor from one gets a 403 on the other.
@@ -130,8 +144,11 @@ ledger failure — the local posting stands.
 
 ```
 server/
-  src/db/schema.sql          18 tables; balance, immutability and idempotency
+  src/db/schema.sql          19 tables; balance, immutability and idempotency
                              invariants enforced by triggers and constraints
+  src/db/sql-db.ts           the async interface the service layer targets
+  src/db/sqlite-db.ts        SQLite implementation (serialised transactions)
+  src/db/postgres-db.ts      Postgres implementation (int8, dates, tx binding)
   src/domain/                money (integer cents), mappings, entry builder, errors
   src/services/              access, audit, journal, invoices, payments,
                              reminders, reconciliation, external sync,
@@ -140,11 +157,18 @@ server/
                              ledger.ts (propose → approve → post → reverse)
   src/api.ts                 HTTP routes
   src/seed.ts                synthetic data, posted via the real pipeline
-  tests/                     128 tests
+  scripts/smoke-postgres.mjs     service layer against real Postgres
+  scripts/verify-http-postgres.mjs  HTTP API against real Postgres
+  tests/                     145 tests
 web/
   src/                       reconciliation interface, proposal queue,
                              journal, reminders, adjustments, sync, audit,
                              agent tool console
+supabase/
+  migrations/                the Postgres schema, ported from schema.sql
+  seed.sql                   reference and configuration data only
+  verify-migration.mjs       executes the migration and asserts its invariants
+  apply.mjs                  applies the schema to a Supabase project
 ```
 
 ## Account mappings

@@ -12,7 +12,7 @@
  * directly as 'posted', because at insert time the lines do not exist yet.
  */
 
-import type { Db } from '../db';
+import type { SqlDb } from '../db';
 import { LedgerError } from '../domain/errors';
 import type {
   ExternalSyncState,
@@ -40,12 +40,9 @@ export interface InsertEntryInput {
 }
 
 /** Next per-seller entry number. Monotonic, gap-free per seller. */
-function nextEntryNo(db: Db, sellerId: string): number {
-  const row = db
-    .prepare(
-      `SELECT COALESCE(MAX(entry_no), 0) AS max_no FROM journal_entries WHERE seller_id = ?`,
-    )
-    .get(sellerId) as { max_no: number };
+async function nextEntryNo(db: SqlDb, sellerId: string): Promise<number>{
+  const row = await db.get(
+      `SELECT COALESCE(MAX(entry_no), 0) AS max_no FROM journal_entries WHERE seller_id = ?`, [sellerId]) as { max_no: number };
   return row.max_no + 1;
 }
 
@@ -54,68 +51,53 @@ function nextEntryNo(db: Db, sellerId: string): number {
  * transaction; the balance trigger will abort the whole transaction if the
  * lines do not sum to zero.
  */
-export function insertPostedEntry(db: Db, input: InsertEntryInput): string {
+export async function insertPostedEntry(db: SqlDb, input: InsertEntryInput): Promise<string>{
   const entryId = newId('je');
-  const entryNo = nextEntryNo(db, input.seller_id);
+  const entryNo = await nextEntryNo(db, input.seller_id);
 
-  db.prepare(
+  await db.run(
     `INSERT INTO journal_entries
        (id, seller_id, entry_no, entry_date, memo, source_type, source_id,
         source_event_id, idempotency_key, reversal_of, entry_kind, status,
         external_sync_state)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
-  ).run(
-    entryId,
-    input.seller_id,
-    entryNo,
-    input.entry_date,
-    input.memo,
-    input.source_type,
-    input.source_id,
-    input.source_event_id,
-    input.idempotency_key ?? null,
-    input.reversal_of ?? null,
-    input.entry_kind,
-    input.external_sync_state,
-  );
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`, [entryId, input.seller_id, entryNo, input.entry_date, input.memo, input.source_type, input.source_id, input.source_event_id, input.idempotency_key ?? null, input.reversal_of ?? null, input.entry_kind, input.external_sync_state]);
 
-  const insertLine = db.prepare(
-    `INSERT INTO journal_lines
-       (id, seller_id, entry_id, line_no, account_id, amount_cents, memo)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  );
+  // Written as a plain statement rather than a reused prepared handle: the
+  // async interface has no prepare(), and re-preparing per line inside one
+  // transaction is equivalent and simpler.
 
-  input.lines.forEach((line, index) => {
-    insertLine.run(
-      newId('jl'),
-      input.seller_id,
-      entryId,
-      index + 1,
-      line.account_id,
-      line.side === 'debit' ? line.amount_cents : -line.amount_cents,
-      line.memo ?? null,
+  for (const [index, line] of input.lines.entries()) {
+    await db.run(
+      `INSERT INTO journal_lines
+         (id, seller_id, entry_id, line_no, account_id, amount_cents, memo)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        newId('jl'),
+        input.seller_id,
+        entryId,
+        index + 1,
+        line.account_id,
+        line.side === 'debit' ? line.amount_cents : -line.amount_cents,
+        line.memo ?? null,
+      ],
     );
-  });
+  }
 
   // Trip the balance trigger.
-  db.prepare(
-    `UPDATE journal_entries SET status = 'posted', posted_at = ?, posted_by = ? WHERE id = ?`,
-  ).run(input.posted_at, input.posted_by, entryId);
+  await db.run(
+    `UPDATE journal_entries SET status = 'posted', posted_at = ?, posted_by = ? WHERE id = ?`, [input.posted_at, input.posted_by, entryId]);
 
   return entryId;
 }
 
-function loadLines(db: Db, entryId: string): JournalLineRecord[] {
-  const rows = db
-    .prepare(
+async function loadLines(db: SqlDb, entryId: string): Promise<JournalLineRecord[]>{
+  const rows = await db.all(
       `SELECT l.line_no, l.account_id, l.amount_cents, l.memo,
               a.code AS account_code, a.name AS account_name
          FROM journal_lines l
          JOIN gl_accounts a ON a.seller_id = l.seller_id AND a.id = l.account_id
         WHERE l.entry_id = ?
-        ORDER BY l.line_no`,
-    )
-    .all(entryId) as Array<{
+        ORDER BY l.line_no`, [entryId]) as Array<{
     line_no: number;
     account_id: string;
     amount_cents: number;
@@ -135,13 +117,11 @@ function loadLines(db: Db, entryId: string): JournalLineRecord[] {
   }));
 }
 
-export function getJournalEntry(db: Db, entryId: string): JournalEntryRecord | null {
-  const row = db
-    .prepare(`SELECT * FROM journal_entries WHERE id = ?`)
-    .get(entryId) as Record<string, unknown> | undefined;
+export async function getJournalEntry(db: SqlDb, entryId: string): Promise<JournalEntryRecord | null>{
+  const row = await db.get(`SELECT * FROM journal_entries WHERE id = ?`, [entryId]) as Record<string, unknown> | undefined;
   if (!row) return null;
 
-  const lines = loadLines(db, entryId);
+  const lines = await loadLines(db, entryId);
   const totalDebit = lines
     .filter((l) => l.side === 'debit')
     .reduce((a, l) => a + l.amount_cents, 0);
@@ -175,30 +155,24 @@ export function getJournalEntry(db: Db, entryId: string): JournalEntryRecord | n
   };
 }
 
-export function getJournalEntryBySourceEvent(
-  db: Db,
+export async function getJournalEntryBySourceEvent(
+  db: SqlDb,
   sellerId: string,
   sourceEventId: string,
-): JournalEntryRecord | null {
-  const row = db
-    .prepare(
-      `SELECT id FROM journal_entries WHERE seller_id = ? AND source_event_id = ?`,
-    )
-    .get(sellerId, sourceEventId) as { id: string } | undefined;
-  return row ? getJournalEntry(db, row.id) : null;
+): Promise<JournalEntryRecord | null>{
+  const row = await db.get(
+      `SELECT id FROM journal_entries WHERE seller_id = ? AND source_event_id = ?`, [sellerId, sourceEventId]) as { id: string } | undefined;
+  return row ? await getJournalEntry(db, row.id) : null;
 }
 
-export function getJournalEntryByIdempotencyKey(
-  db: Db,
+export async function getJournalEntryByIdempotencyKey(
+  db: SqlDb,
   sellerId: string,
   idempotencyKey: string,
-): JournalEntryRecord | null {
-  const row = db
-    .prepare(
-      `SELECT id FROM journal_entries WHERE seller_id = ? AND idempotency_key = ?`,
-    )
-    .get(sellerId, idempotencyKey) as { id: string } | undefined;
-  return row ? getJournalEntry(db, row.id) : null;
+): Promise<JournalEntryRecord | null>{
+  const row = await db.get(
+      `SELECT id FROM journal_entries WHERE seller_id = ? AND idempotency_key = ?`, [sellerId, idempotencyKey]) as { id: string } | undefined;
+  return row ? await getJournalEntry(db, row.id) : null;
 }
 
 export interface ListEntriesOptions {
@@ -207,38 +181,31 @@ export interface ListEntriesOptions {
   sourceType?: string;
 }
 
-export function listJournalEntries(
-  db: Db,
+export async function listJournalEntries(
+  db: SqlDb,
   options: ListEntriesOptions,
-): JournalEntryRecord[] {
+): Promise<JournalEntryRecord[]>{
   const limit = options.limit ?? 100;
   const rows = options.sourceType
-    ? (db
-        .prepare(
+    ? (await db.all(
           `SELECT id FROM journal_entries
             WHERE seller_id = ? AND source_type = ?
-            ORDER BY entry_no DESC LIMIT ?`,
-        )
-        .all(options.sellerId, options.sourceType, limit) as Array<{ id: string }>)
-    : (db
-        .prepare(
+            ORDER BY entry_no DESC LIMIT ?`, [options.sellerId, options.sourceType, limit]) as Array<{ id: string }>)
+    : (await db.all(
           `SELECT id FROM journal_entries
             WHERE seller_id = ?
-            ORDER BY entry_no DESC LIMIT ?`,
-        )
-        .all(options.sellerId, limit) as Array<{ id: string }>);
+            ORDER BY entry_no DESC LIMIT ?`, [options.sellerId, limit]) as Array<{ id: string }>);
 
-  return rows
-    .map((r) => getJournalEntry(db, r.id))
-    .filter((e): e is JournalEntryRecord => e !== null);
+  const entries = await Promise.all(rows.map((r) => getJournalEntry(db, r.id)));
+  return entries.filter((e): e is JournalEntryRecord => e !== null);
 }
 
 /** Throw unless the entry exists and is still posted (i.e. not reversed). */
-export function requireReversibleEntry(
-  db: Db,
+export async function requireReversibleEntry(
+  db: SqlDb,
   entryId: string,
-): JournalEntryRecord {
-  const entry = getJournalEntry(db, entryId);
+): Promise<JournalEntryRecord>{
+  const entry = await getJournalEntry(db, entryId);
   if (!entry) {
     throw new LedgerError('not_found', `journal entry '${entryId}' not found`);
   }

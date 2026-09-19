@@ -26,36 +26,36 @@ import { listAuditEvents } from '../src/services/audit';
 import { callTool } from '../src/services/agent-tools';
 import { AGENT, APPROVER, BOOKKEEPER, makeTestDb } from './helpers';
 
-describe('external sync state', () => {
-  it('reports not_applicable when the local ledger is authoritative', () => {
-    const { db, sellerId } = makeTestDb({ authoritativeSystem: 'local' });
-    const posture = getLedgerPosture(db, sellerId);
+describe('external sync state', async () => {
+  it('reports not_applicable when the local ledger is authoritative', async () => {
+    const { db, sellerId } = await makeTestDb({ authoritativeSystem: 'local' });
+    const posture = await getLedgerPosture(db, sellerId);
     expect(posture.authoritative_system).toBe('local');
     expect(posture.local_ledger_is_authoritative).toBe(true);
     expect(posture.note).toMatch(/local operational ledger is authoritative/);
-    expect(initialSyncStateForSeller(db, sellerId)).toBe('not_applicable');
+    expect(await initialSyncStateForSeller(db, sellerId)).toBe('not_applicable');
   });
 
-  it('reports pending when an external platform is authoritative', () => {
-    const { db, sellerId } = makeTestDb({ authoritativeSystem: 'external' });
-    const posture = getLedgerPosture(db, sellerId);
+  it('reports pending when an external platform is authoritative', async () => {
+    const { db, sellerId } = await makeTestDb({ authoritativeSystem: 'external' });
+    const posture = await getLedgerPosture(db, sellerId);
     expect(posture.local_ledger_is_authoritative).toBe(false);
     expect(posture.note).toMatch(/provisional until the platform confirms/);
-    expect(initialSyncStateForSeller(db, sellerId)).toBe('pending');
+    expect(await initialSyncStateForSeller(db, sellerId)).toBe('pending');
   });
 
-  it('marks a posting pending, never confirmed, when external is authoritative', () => {
-    const { db, sellerId } = makeTestDb({ authoritativeSystem: 'external' });
-    const proposal = proposeLedgerUpdate(db, AGENT, {
+  it('marks a posting pending, never confirmed, when external is authoritative', async () => {
+    const { db, sellerId } = await makeTestDb({ authoritativeSystem: 'external' });
+    const proposal = await proposeLedgerUpdate(db, AGENT, {
       kind: 'record_payment',
       seller_id: sellerId,
       amount_cents: 5000,
       received_at: '2026-09-01T12:00:00.000Z',
     });
-    approveLedgerUpdate(db, APPROVER, proposal.id, { reason: 'test' });
-    const result = postLedgerUpdate(db, APPROVER, proposal.id);
+    await approveLedgerUpdate(db, APPROVER, proposal.id, { reason: 'test' });
+    const result = await postLedgerUpdate(db, APPROVER, proposal.id);
 
-    const entry = getJournalEntry(db, result.entry_id)!;
+    const entry = await getJournalEntry(db, result.entry_id)!;
     // The local posting succeeded, but the external ledger has NOT been
     // updated — it is awaiting confirmation.
     expect(entry.external_sync_state).toBe('pending');
@@ -63,44 +63,42 @@ describe('external sync state', () => {
     expect(entry.external_synced_at).toBeNull();
   });
 
-  it('refuses to mark a sync confirmed without a platform reference', () => {
-    const { db, sellerId } = makeTestDb({ authoritativeSystem: 'external' });
-    const proposal = proposeLedgerUpdate(db, AGENT, {
+  it('refuses to mark a sync confirmed without a platform reference', async () => {
+    const { db, sellerId } = await makeTestDb({ authoritativeSystem: 'external' });
+    const proposal = await proposeLedgerUpdate(db, AGENT, {
       kind: 'record_payment',
       seller_id: sellerId,
       amount_cents: 5000,
       received_at: '2026-09-01T12:00:00.000Z',
     });
-    approveLedgerUpdate(db, APPROVER, proposal.id, { reason: 'test' });
-    const { entry_id } = postLedgerUpdate(db, APPROVER, proposal.id);
+    await approveLedgerUpdate(db, APPROVER, proposal.id, { reason: 'test' });
+    const { entry_id } = await postLedgerUpdate(db, APPROVER, proposal.id);
 
-    expect(() =>
-      recordSyncAttempt(db, {
+    await expect(recordSyncAttempt(db, {
         sellerId,
         entryId: entry_id,
         platform: 'demo-platform',
         state: 'confirmed',
         externalRef: null,
         actor: APPROVER,
-      }),
-    ).toThrowError(/requires a platform-issued external_ref/);
+      }),).rejects.toThrowError(/requires a platform-issued external_ref/);
 
     // And the entry must still be pending — the failed claim changed nothing.
-    expect(getJournalEntry(db, entry_id)!.external_sync_state).toBe('pending');
+    expect((await getJournalEntry(db, entry_id))!.external_sync_state).toBe('pending');
   });
 
-  it('records a confirmed sync once the platform supplies a reference', () => {
-    const { db, sellerId } = makeTestDb({ authoritativeSystem: 'external' });
-    const proposal = proposeLedgerUpdate(db, AGENT, {
+  it('records a confirmed sync once the platform supplies a reference', async () => {
+    const { db, sellerId } = await makeTestDb({ authoritativeSystem: 'external' });
+    const proposal = await proposeLedgerUpdate(db, AGENT, {
       kind: 'record_payment',
       seller_id: sellerId,
       amount_cents: 5000,
       received_at: '2026-09-01T12:00:00.000Z',
     });
-    approveLedgerUpdate(db, APPROVER, proposal.id, { reason: 'test' });
-    const { entry_id } = postLedgerUpdate(db, APPROVER, proposal.id);
+    await approveLedgerUpdate(db, APPROVER, proposal.id, { reason: 'test' });
+    const { entry_id } = await postLedgerUpdate(db, APPROVER, proposal.id);
 
-    recordSyncAttempt(db, {
+    await recordSyncAttempt(db, {
       sellerId,
       entryId: entry_id,
       platform: 'demo-platform',
@@ -110,24 +108,24 @@ describe('external sync state', () => {
       actor: APPROVER,
     });
 
-    const entry = getJournalEntry(db, entry_id)!;
+    const entry = await getJournalEntry(db, entry_id)!;
     expect(entry.external_sync_state).toBe('confirmed');
     expect(entry.external_ref).toBe('PLATFORM-JE-9981');
     expect(entry.external_synced_at).not.toBeNull();
   });
 
-  it('records a failed sync with the error and keeps the entry recoverable', () => {
-    const { db, sellerId } = makeTestDb({ authoritativeSystem: 'external' });
-    const proposal = proposeLedgerUpdate(db, AGENT, {
+  it('records a failed sync with the error and keeps the entry recoverable', async () => {
+    const { db, sellerId } = await makeTestDb({ authoritativeSystem: 'external' });
+    const proposal = await proposeLedgerUpdate(db, AGENT, {
       kind: 'record_payment',
       seller_id: sellerId,
       amount_cents: 5000,
       received_at: '2026-09-01T12:00:00.000Z',
     });
-    approveLedgerUpdate(db, APPROVER, proposal.id, { reason: 'test' });
-    const { entry_id } = postLedgerUpdate(db, APPROVER, proposal.id);
+    await approveLedgerUpdate(db, APPROVER, proposal.id, { reason: 'test' });
+    const { entry_id } = await postLedgerUpdate(db, APPROVER, proposal.id);
 
-    recordSyncAttempt(db, {
+    await recordSyncAttempt(db, {
       sellerId,
       entryId: entry_id,
       platform: 'demo-platform',
@@ -136,25 +134,25 @@ describe('external sync state', () => {
       actor: APPROVER,
     });
 
-    const entry = getJournalEntry(db, entry_id)!;
+    const entry = await getJournalEntry(db, entry_id)!;
     expect(entry.external_sync_state).toBe('failed');
     expect(entry.external_error).toBe('platform returned 503');
     // The local posting still stands: a sync failure is not a ledger failure.
     expect(entry.status).toBe('posted');
   });
 
-  it('keeps the full attempt history, not just the latest state', () => {
-    const { db, sellerId } = makeTestDb({ authoritativeSystem: 'external' });
-    const proposal = proposeLedgerUpdate(db, AGENT, {
+  it('keeps the full attempt history, not just the latest state', async () => {
+    const { db, sellerId } = await makeTestDb({ authoritativeSystem: 'external' });
+    const proposal = await proposeLedgerUpdate(db, AGENT, {
       kind: 'record_payment',
       seller_id: sellerId,
       amount_cents: 5000,
       received_at: '2026-09-01T12:00:00.000Z',
     });
-    approveLedgerUpdate(db, APPROVER, proposal.id, { reason: 'test' });
-    const { entry_id } = postLedgerUpdate(db, APPROVER, proposal.id);
+    await approveLedgerUpdate(db, APPROVER, proposal.id, { reason: 'test' });
+    const { entry_id } = await postLedgerUpdate(db, APPROVER, proposal.id);
 
-    recordSyncAttempt(db, {
+    await recordSyncAttempt(db, {
       sellerId,
       entryId: entry_id,
       platform: 'demo-platform',
@@ -162,7 +160,7 @@ describe('external sync state', () => {
       errorMessage: 'timeout',
       actor: APPROVER,
     });
-    recordSyncAttempt(db, {
+    await recordSyncAttempt(db, {
       sellerId,
       entryId: entry_id,
       platform: 'demo-platform',
@@ -171,7 +169,7 @@ describe('external sync state', () => {
       actor: APPROVER,
     });
 
-    const attempts = listSyncAttempts(db, entry_id);
+    const attempts = await listSyncAttempts(db, entry_id);
     expect(attempts).toHaveLength(2);
     // Newest first.
     expect(attempts[0]!.state).toBe('confirmed');
@@ -179,21 +177,21 @@ describe('external sync state', () => {
     expect(attempts[1]!.error_message).toBe('timeout');
   });
 
-  it('lists entries awaiting confirmation as the sync backlog', () => {
-    const { db, sellerId } = makeTestDb({ authoritativeSystem: 'external' });
-    const proposal = proposeLedgerUpdate(db, AGENT, {
+  it('lists entries awaiting confirmation as the sync backlog', async () => {
+    const { db, sellerId } = await makeTestDb({ authoritativeSystem: 'external' });
+    const proposal = await proposeLedgerUpdate(db, AGENT, {
       kind: 'record_payment',
       seller_id: sellerId,
       amount_cents: 5000,
       received_at: '2026-09-01T12:00:00.000Z',
     });
-    approveLedgerUpdate(db, APPROVER, proposal.id, { reason: 'test' });
-    const { entry_id } = postLedgerUpdate(db, APPROVER, proposal.id);
+    await approveLedgerUpdate(db, APPROVER, proposal.id, { reason: 'test' });
+    const { entry_id } = await postLedgerUpdate(db, APPROVER, proposal.id);
 
-    const pending = listPendingSyncEntries(db, sellerId);
+    const pending = await listPendingSyncEntries(db, sellerId);
     expect(pending.map((p) => p.id)).toContain(entry_id);
 
-    recordSyncAttempt(db, {
+    await recordSyncAttempt(db, {
       sellerId,
       entryId: entry_id,
       platform: 'demo-platform',
@@ -202,54 +200,52 @@ describe('external sync state', () => {
       actor: APPROVER,
     });
 
-    expect(listPendingSyncEntries(db, sellerId).map((p) => p.id)).not.toContain(
+    expect((await listPendingSyncEntries(db, sellerId)).map((p) => p.id)).not.toContain(
       entry_id,
     );
   });
 
-  it('never claims an external update for a locally authoritative seller', () => {
-    const { db, sellerId } = makeTestDb({ authoritativeSystem: 'local' });
-    const proposal = proposeLedgerUpdate(db, BOOKKEEPER, {
+  it('never claims an external update for a locally authoritative seller', async () => {
+    const { db, sellerId } = await makeTestDb({ authoritativeSystem: 'local' });
+    const proposal = await proposeLedgerUpdate(db, BOOKKEEPER, {
       kind: 'record_payment',
       seller_id: sellerId,
       amount_cents: 5000,
       received_at: '2026-09-01T12:00:00.000Z',
     });
-    approveLedgerUpdate(db, APPROVER, proposal.id, { reason: 'test' });
-    const { entry_id } = postLedgerUpdate(db, APPROVER, proposal.id);
+    await approveLedgerUpdate(db, APPROVER, proposal.id, { reason: 'test' });
+    const { entry_id } = await postLedgerUpdate(db, APPROVER, proposal.id);
 
-    const entry = getJournalEntry(db, entry_id)!;
+    const entry = await getJournalEntry(db, entry_id)!;
     expect(entry.external_sync_state).toBe('not_applicable');
     expect(entry.external_ref).toBeNull();
     // Nothing is in the sync backlog because there is no platform.
-    expect(listPendingSyncEntries(db, sellerId)).toHaveLength(0);
+    expect(await listPendingSyncEntries(db, sellerId)).toHaveLength(0);
   });
 
-  it('refuses to sync an entry that is not posted', () => {
-    const { db, sellerId } = makeTestDb({ authoritativeSystem: 'external' });
-    expect(() =>
-      recordSyncAttempt(db, {
+  it('refuses to sync an entry that is not posted', async () => {
+    const { db, sellerId } = await makeTestDb({ authoritativeSystem: 'external' });
+    await expect(recordSyncAttempt(db, {
         sellerId,
         entryId: 'je_missing',
         platform: 'demo-platform',
         state: 'pending',
         actor: APPROVER,
-      }),
-    ).toThrowError(/not found/);
+      }),).rejects.toThrowError(/not found/);
   });
 
-  it('audits each sync transition', () => {
-    const { db, sellerId } = makeTestDb({ authoritativeSystem: 'external' });
-    const proposal = proposeLedgerUpdate(db, AGENT, {
+  it('audits each sync transition', async () => {
+    const { db, sellerId } = await makeTestDb({ authoritativeSystem: 'external' });
+    const proposal = await proposeLedgerUpdate(db, AGENT, {
       kind: 'record_payment',
       seller_id: sellerId,
       amount_cents: 5000,
       received_at: '2026-09-01T12:00:00.000Z',
     });
-    approveLedgerUpdate(db, APPROVER, proposal.id, { reason: 'test' });
-    const { entry_id } = postLedgerUpdate(db, APPROVER, proposal.id);
+    await approveLedgerUpdate(db, APPROVER, proposal.id, { reason: 'test' });
+    const { entry_id } = await postLedgerUpdate(db, APPROVER, proposal.id);
 
-    recordSyncAttempt(db, {
+    await recordSyncAttempt(db, {
       sellerId,
       entryId: entry_id,
       platform: 'demo-platform',
@@ -258,14 +254,14 @@ describe('external sync state', () => {
       actor: APPROVER,
     });
 
-    const actions = listAuditEvents(db, sellerId).map((e) => e.action);
+    const actions = (await listAuditEvents(db, sellerId)).map((e) => e.action);
     expect(actions).toContain('external_sync.confirmed');
   });
 
-  it('distinguishes local posting success from external confirmation in the tool output', () => {
-    const { db, sellerId } = makeTestDb({ authoritativeSystem: 'external' });
+  it('distinguishes local posting success from external confirmation in the tool output', async () => {
+    const { db, sellerId } = await makeTestDb({ authoritativeSystem: 'external' });
 
-    const proposed = callTool(db, AGENT, 'propose_ledger_update', {
+    const proposed = await callTool(db, AGENT, 'propose_ledger_update', {
       operation: {
         kind: 'record_payment',
         seller_id: sellerId,
@@ -274,8 +270,8 @@ describe('external sync state', () => {
       },
     });
     const proposalId = (proposed.result as { proposal_id: string }).proposal_id;
-    callTool(db, APPROVER, 'approve_ledger_update', { proposal_id: proposalId });
-    const posted = callTool(db, AGENT, 'post_ledger_update', {
+    await callTool(db, APPROVER, 'approve_ledger_update', { proposal_id: proposalId });
+    const posted = await callTool(db, AGENT, 'post_ledger_update', {
       proposal_id: proposalId,
     });
 

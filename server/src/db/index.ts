@@ -1,117 +1,177 @@
 /**
- * SQLite connection and migration runner.
+ * Database wiring: which backend, and applying the schema.
  *
- * Uses better-sqlite3, which is synchronous. That is a deliberate choice for
- * this service: a single connection serialises writes, which makes the
- * "commit the journal, allocation, balance changes and audit event in one
- * transaction" requirement straightforward to guarantee. The concurrency
- * tests exercise the interleaving that matters (two requests racing for the
- * same invoice), and better-sqlite3's immediate transactions plus the
- * optimistic version checks are what make that safe.
+ * Chosen by connection string, not by NODE_ENV, so a local Postgres or a
+ * Supabase branch both work without a code change:
  *
- * NOTE ON POSTGRES: the production target is Supabase (Postgres), whose
- * driver is asynchronous, so this file's synchronous shape does not carry
- * over unchanged. The schema is already ported and verified in
- * `supabase/`; the service-layer port is scoped in `supabase/README.md`
- * under "Porting the service layer". It is a real refactor, not a driver
- * swap, which is why it is not half-applied here.
+ *   SUPABASE_DB_URL set  -> Postgres (Supabase)
+ *   otherwise            -> SQLite at DB_FILE (tests, local development)
+ *
+ * Tests get in-memory SQLite via createTestDb(), so the suite runs with no
+ * external services. The same suite runs against Postgres by setting
+ * SUPABASE_DB_URL, which is how the port is validated.
  */
 
-import Database from 'better-sqlite3';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import type { SqlDb } from './sql-db';
+import { SqliteDb } from './sqlite-db';
+import { openPostgres } from './postgres-db';
 
-export type Db = Database.Database;
+export type { SqlDb, RunResult } from './sql-db';
+export { SqliteDb } from './sqlite-db';
+export { PostgresDb, openPostgres, toPgPlaceholders } from './postgres-db';
 
-const SCHEMA_PATH = join(__dirname, 'schema.sql');
+const SQLITE_SCHEMA_PATH = join(__dirname, 'schema.sql');
 
 /**
- * Candidate locations for schema.sql.
- *
- * The build copies it next to the compiled db module, but during `tsx`
- * development this file lives under src/. Trying both means `npm run dev`,
- * `npm start` and the test runner all work without a separate code path.
+ * Candidate locations for the SQLite schema. The build copies it next to the
+ * compiled module; during `tsx` development it lives under src/.
  */
-const SCHEMA_CANDIDATES = [
-  SCHEMA_PATH,
+const SQLITE_SCHEMA_CANDIDATES = [
+  SQLITE_SCHEMA_PATH,
   join(__dirname, '..', '..', 'src', 'db', 'schema.sql'),
 ];
 
 /**
- * Default database file, resolved relative to the server package root rather
- * than the process CWD so `npm run dev`, `npm start` and a direct
- * `node dist/index.js` all land on the same file.
+ * The Postgres schema IS the Supabase migration, so the two cannot drift.
+ * Applying it here is what lets an empty Postgres database be brought up by
+ * the same code path that creates a SQLite one.
  */
+const POSTGRES_SCHEMA_CANDIDATES = [
+  join(__dirname, '..', '..', 'supabase', 'migrations', '20260919000000_seller_ledger.sql'),
+  join(__dirname, '..', '..', '..', 'supabase', 'migrations', '20260919000000_seller_ledger.sql'),
+];
+
+/** Default SQLite file, relative to the server package root rather than CWD. */
 export const DEFAULT_DB_PATH = resolve(__dirname, '..', '..', 'data', 'ledger.db');
 
-let schemaSql: string | null = null;
-
-function loadSchema(): string {
-  if (schemaSql === null) {
-    const found = SCHEMA_CANDIDATES.find((p) => existsSync(p));
-    if (!found) {
-      throw new Error(
-        `could not locate schema.sql; looked in:\n  ${SCHEMA_CANDIDATES.join('\n  ')}`,
-      );
-    }
-    schemaSql = readFileSync(found, 'utf8');
+function readFirst(paths: string[], label: string): string {
+  const found = paths.find((p) => existsSync(p));
+  if (!found) {
+    throw new Error(
+      `could not locate the ${label} schema; looked in:\n  ${paths.join('\n  ')}`,
+    );
   }
-  return schemaSql;
+  return readFileSync(found, 'utf8');
+}
+
+/** The SQLite schema, used to create and migrate a local database. */
+export function loadSqliteSchema(): string {
+  return readFirst(SQLITE_SCHEMA_CANDIDATES, 'SQLite');
+}
+
+/** The Postgres/Supabase schema. */
+export function loadPostgresSchema(): string {
+  return readFirst(POSTGRES_SCHEMA_CANDIDATES, 'Postgres');
 }
 
 export interface OpenDbOptions {
-  /** ':memory:' for tests, or a file path for the running app. */
+  /** ':memory:' for tests, or a file path for local development. */
   filename: string;
-  /** Set false when the caller manages its own schema application. */
+  /** Apply the bundled schema on open. */
   migrate?: boolean;
 }
 
-export function openDb(options: OpenDbOptions): Db {
-  const db = new Database(options.filename);
-  // WAL is what lets the HTTP server read while a posting transaction is
-  // still committing, without readers blocking on the writer.
+/**
+ * Open a SQLite database. Synchronous on purpose: better-sqlite3 is, and tests
+ * needing a handle immediately should not have to await.
+ */
+export function openDb(options: OpenDbOptions): SqliteDb {
   if (options.filename !== ':memory:') {
-    db.pragma('journal_mode = WAL');
+    const dir = dirname(options.filename);
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   }
-  db.pragma('foreign_keys = ON');
-  // Wait rather than fail when another connection holds the write lock.
-  db.pragma('busy_timeout = 5000');
+  const db = new SqliteDb({ filename: options.filename });
   if (options.migrate !== false) {
-    applySchema(db);
+    db.handle.exec(loadSqliteSchema());
   }
   return db;
 }
 
-export function applySchema(db: Db): void {
-  db.exec(loadSchema());
-}
-
 /** Fresh in-memory database for a single test case. */
-export function createTestDb(): Db {
+export function createTestDb(): SqliteDb {
   return openDb({ filename: ':memory:' });
 }
 
-/** Run `fn` inside a transaction, rolling back on any throw. */
-export function transaction<T>(db: Db, fn: () => T): T {
-  const run = db.transaction(fn);
-  return run();
+/**
+ * Apply the active backend's schema to an open database.
+ *
+ * On Postgres this is a no-op when the schema is already present — which it is
+ * on Supabase, and on the local verification harness — because the migration is
+ * written to be idempotent. `force` re-applies it, and `authStub` creates the
+ * `auth` schema and `auth.uid()` that Supabase provides but bare Postgres does
+ * not.
+ */
+export async function applySchema(
+  db: SqlDb,
+  options: { authStub?: boolean; force?: boolean } = {},
+): Promise<void> {
+  if (db.dialect === 'sqlite') {
+    await db.exec(loadSqliteSchema());
+    return;
+  }
+
+  if (options.authStub) {
+    await db.exec(`
+      create schema if not exists auth;
+      create table if not exists auth.users (
+        id uuid primary key default gen_random_uuid(),
+        email text
+      );
+      create or replace function auth.uid()
+      returns uuid language sql stable
+      as $$ select nullif(current_setting('test.uid', true), '')::uuid $$;
+    `);
+  }
+
+  if (options.force) {
+    await db.exec(loadPostgresSchema());
+    return;
+  }
+
+  const existing = await db.get<{ n: number }>(
+    `select count(*)::int as n from pg_tables
+      where schemaname = 'public' and tablename = 'journal_entries'`,
+  );
+  if (!existing || existing.n === 0) {
+    await db.exec(loadPostgresSchema());
+  }
 }
 
 /**
- * Run `fn` in an IMMEDIATE transaction. IMMEDIATE takes the write lock at
- * BEGIN rather than at first write, so two concurrent postings cannot both
- * read a stale balance and then race to write it.
+ * Choose a backend from the environment.
  */
-export function immediateTransaction<T>(db: Db, fn: () => T): T {
-  const run = db.transaction(fn);
-  return run.immediate();
+export function openDatabaseFromEnv(): SqlDb {
+  const url = process.env.SUPABASE_DB_URL;
+  if (url) {
+    const sslMode = (process.env.SUPABASE_DB_SSL ?? 'require') as
+      | 'require'
+      | 'no-verify'
+      | 'disable';
+    // Pool size is configurable because some Postgres-compatible servers
+    // (PGlite's socket implementation among them) do not isolate session state
+    // across concurrent connections, and a pool of 1 is the only way to talk
+    // to them. Real Postgres — including Supabase — is fine with the default.
+    const max = Number(process.env.SUPABASE_DB_POOL_MAX ?? 10);
+    return openPostgres({ url, ssl: sslMode, max: Number.isFinite(max) ? max : 10 });
+  }
+  const file = process.env.DB_FILE ?? DEFAULT_DB_PATH;
+  return openDb({ filename: file });
 }
 
-/** Ensure the directory holding the database file exists. */
+/** Human-readable description of the active backend, with any password masked. */
+export function describeDatabase(db: SqlDb): string {
+  if (db.dialect === 'postgres') {
+    const masked = (process.env.SUPABASE_DB_URL ?? '').replace(/:[^:@/]*@/, ':***@');
+    return `postgres ${masked}`;
+  }
+  return `sqlite ${process.env.DB_FILE ?? DEFAULT_DB_PATH}`;
+}
+
+/** Ensure the directory holding a SQLite file exists. No-op for Postgres. */
 export function ensureDbDirectory(file: string): void {
   if (file === ':memory:') return;
   const dir = dirname(file);
-  if (!existsSync(dir)) {
-    require('node:fs').mkdirSync(dir, { recursive: true });
-  }
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
