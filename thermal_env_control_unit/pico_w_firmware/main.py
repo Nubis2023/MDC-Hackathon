@@ -240,13 +240,46 @@ class AlertManager:
         self._buzzer_on     = False
         self._last_buzzer_toggle = 0
 
+    # Server config key → local attribute name. The two *_sec keys are spelled
+    # differently on the server than here, so they are mapped explicitly instead
+    # of setattr'd by name — that mismatch previously made them silently no-op.
+    _CONFIG_KEYS = {
+        "temp_min":           "temp_min",
+        "temp_max":           "temp_max",
+        "humidity_min":       "humidity_min",
+        "humidity_max":       "humidity_max",
+        "tds_warning":        "tds_warning",
+        "tds_critical":       "tds_critical",
+        "voc_warning":        "voc_warning",
+        "voc_critical":       "voc_critical",
+        "alert_cooldown_sec": "cooldown_sec",   # server's spelling
+        "cooldown_sec":       "cooldown_sec",   # accept either
+        "post_interval_sec":  "interval_sec",
+    }
+
     def update_thresholds(self, config: dict):
-        for key in ("temp_min", "temp_max", "humidity_min", "humidity_max",
-                    "tds_warning", "tds_critical", "voc_warning", "voc_critical",
-                    "cooldown_sec", "post_interval_sec"):
+        applied = 0
+        for key, attr in self._CONFIG_KEYS.items():
             if key in config:
-                setattr(self, key, config[key])
-        print(f"[ALERT] Thresholds updated from /config")
+                setattr(self, attr, config[key])
+                applied += 1
+        print(f"[ALERT] Thresholds updated from /config ({applied} keys)")
+        # The display renders these numbers, so it has to be told when they move.
+        self.send_config_to_display()
+
+    def send_config_to_display(self):
+        """Push current thresholds to the ESP32 so its UI need not hardcode them."""
+        send_to_display({
+            "type":         "config",
+            "temp_min":     self.temp_min,
+            "temp_max":     self.temp_max,
+            "humidity_min": self.humidity_min,
+            "humidity_max": self.humidity_max,
+            "tds_warning":  self.tds_warning,
+            "tds_critical": self.tds_critical,
+            "voc_warning":  self.voc_warning,
+            "voc_critical": self.voc_critical,
+        })
 
     def _cooldown_ok(self, alert_type: str) -> bool:
         last = self._last_alert.get(alert_type, 0)
@@ -270,6 +303,15 @@ class AlertManager:
             "message": message,
         }
         http_post("/alerts", payload)
+
+        # The display has no network stack — UART is the only way it hears about
+        # an alert. Without this the ESP32's whole alert overlay is unreachable.
+        send_to_display({
+            "type":       "alert",
+            "alert_type": alert_type,
+            "severity":   severity,
+            "message":    message,
+        })
 
     def evaluate(self, temp: float, humidity: float,
                  tds: float, voc: float):
@@ -355,6 +397,57 @@ def send_to_display(data: dict):
     except Exception as e:
         print(f"[UART] Send error: {e}")
 
+
+_rx_buf = b""
+_RX_BUF_MAX = 512   # a display message is ~40 bytes; anything larger is line noise
+
+
+def poll_display(alerts):
+    """Drain UART1 and handle messages coming back from the ESP32 display."""
+    global _rx_buf
+    try:
+        if not uart.any():
+            return
+        _rx_buf += uart.read() or b""
+    except Exception as e:
+        print(f"[UART] Read error: {e}")
+        return
+
+    # Never let a newline-less stream grow without bound.
+    if len(_rx_buf) > _RX_BUF_MAX:
+        print("[UART] RX buffer overflow — discarding")
+        _rx_buf = b""
+        return
+
+    while b"\n" in _rx_buf:
+        line, _rx_buf = _rx_buf.split(b"\n", 1)
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            msg = ujson.loads(line)
+        except Exception:
+            print(f"[UART] Bad JSON from display: {line}")
+            continue
+        if msg.get("type") == "ack":
+            print("[UART] Acknowledge received from display")
+            alerts.acknowledge()
+
+
+def _idle(seconds: float, alerts):
+    """
+    Wait, but stay responsive. The old code slept a flat 10 s, so both the
+    display ACK and the physical button were only serviced once per cycle.
+    """
+    deadline = time.ticks_add(time.ticks_ms(), int(seconds * 1000))
+    while time.ticks_diff(deadline, time.ticks_ms()) > 0:
+        poll_display(alerts)
+        if not ack_btn.value():            # active LOW
+            alerts.acknowledge()
+            while not ack_btn.value():     # debounce: wait for release
+                time.sleep_ms(50)
+        time.sleep_ms(100)
+
 # ─────────────────────────────────────────────
 # READING HELPERS
 # ─────────────────────────────────────────────
@@ -431,11 +524,15 @@ def main():
     setup()
 
     alerts = AlertManager()
-    post_interval   = 60      # seconds between /readings POSTs
+    # POST cadence lives on the AlertManager so GET /config can actually move it.
     drop_check_interval = 300  # seconds between /check-drops GETs
     last_post   = 0
     last_drop_check = 0
     last_config = 0
+
+    # Seed the display with the default thresholds so its UI is correct before
+    # the first GET /config lands (which can be up to 5 minutes away).
+    alerts.send_config_to_display()
 
     while True:
         now = time.time()
@@ -478,14 +575,6 @@ def main():
         # ── Evaluate alerts ───────────────────────
         alerts.evaluate(temp, hum, tds, voc)
 
-        # ── Check acknowledge button ─────────────
-        # Button is active LOW (pressed → GND); pull-up keeps it HIGH
-        if not ack_btn.value():    # active LOW
-            alerts.acknowledge()
-            # Debounce: wait for release
-            while not ack_btn.value():
-                time.sleep_ms(50)
-
         # ── Send to display ───────────────────────
         send_to_display({
             "type": "readings",
@@ -494,7 +583,7 @@ def main():
         })
 
         # ── POST readings to endpoint ──────────────
-        if now - last_post >= post_interval:
+        if now - last_post >= alerts.interval_sec:
             payload = {
                 "device_id": DEVICE_ID,
                 "timestamp": _iso_now(),
@@ -504,7 +593,9 @@ def main():
             print(f"[HTTP] POST /readings → {'OK' if ok else 'FAILED'}")
             last_post = now
 
-        time.sleep(10)   # main loop tick every 10 s; POST interval governs upload
+        # Main loop ticks every 10 s; POST interval governs upload. _idle keeps
+        # the display ACK and the button responsive during the wait.
+        _idle(10, alerts)
 
 
 if __name__ == "__main__":

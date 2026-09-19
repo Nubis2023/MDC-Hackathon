@@ -1,5 +1,7 @@
 # SETUP.md — Thermal Environmental Control Unit
 
+> **Display hardware changed.** The connected panel is a VIEWE UEDX48480021 (ST7701S 480x480, LVGL), not the ILI9488 described below. The ILI9488/TFT_eSPI instructions in this file are retained for that panel only and will not work on the current board. Build `esp32_display/shopswarm_display/` instead - see [CHANGES.md](CHANGES.md).
+
 ## Parts List
 
 | Part | Model | Purpose |

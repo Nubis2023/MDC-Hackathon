@@ -1,5 +1,8 @@
 # Thermal Environmental Control Unit — Hardware Design Reference
 
+> **Display hardware changed.** The connected panel is a VIEWE UEDX48480021 (ST7701S 480x480, RGB16 + CST820 touch), not the ILI9488 documented here. The ESP32 pinout below does not apply to it - the RGB bus leaves only GPIO 4, 5, 6, 43, 44 free. See [../CHANGES.md](../CHANGES.md).
+
+
 ## Overview
 
 | Parameter | Value |
