@@ -1,0 +1,30 @@
+{
+  "name": "mdc-ledger",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Seller-scoped ledger write service with agent tools and invoice-to-payment reconciliation",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace web && npm run build --workspace server",
+    "typecheck": "npm run typecheck --workspace server && npm run typecheck --workspace web",
+    "test": "npm run test --workspace server",
+    "verify:supabase": "node supabase/verify-migration.mjs",
+    "apply:supabase": "node supabase/apply.mjs",
+    "test:supabase-apply": "node supabase/test-apply.mjs",
+    "seed": "npm run seed --workspace server",
+    "start": "npm run start --workspace server",
+    "dev": "npm run dev --workspace server",
+    "dev:web": "npm run dev --workspace web"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@electric-sql/pglite-socket": "^0.2.11",
+    "postgres": "^3.4.9"
+  }
+}

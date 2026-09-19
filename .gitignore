@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+
+# SQLite database and its WAL sidecars. The pattern is unanchored on purpose:
+# the server keeps its database in server/data/, and an anchored "data/*.db"
+# would only match a root-level data/ directory and let the binary through.
+*.db
+*.db-wal
+*.db-shm
+
+# Environment. .env.example IS tracked — it documents the variables and holds
+# no values. Never commit a real .env: it carries the Supabase service role
+# key, which bypasses row level security.
+.env
+.env.local
+.env.*.local
+
+# Test coverage
+coverage/
+
+# Editor
+.vscode/
+.idea/
