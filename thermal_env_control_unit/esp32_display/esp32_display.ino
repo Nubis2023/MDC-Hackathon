@@ -271,7 +271,7 @@ void draw_splash() {
   tft.setTextDatum(TC_DATUM);
   tft.setTextColor(C_PRIMARY, C_BG);
   tft.setFreeFont(&FreeSansBold24pt7b);
-  tft.drawString("EnvCtrl", 160, 100, 1);
+  tft.drawString("ShopSwarm", 160, 100, 1);
   tft.setFreeFont(&FreeSans12pt7b);
   tft.setTextColor(C_SUBTEXT, C_BG);
   tft.drawString("Thermal Monitor v1.0", 160, 150, 1);
