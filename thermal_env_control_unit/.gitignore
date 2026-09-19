@@ -1,0 +1,25 @@
+# Byte-compiled / optimized Python files
+__pycache__/
+*.pyc
+*.pyo
+.pio/
+.vscode/
+.idea/
+*.egg-info/
+dist/
+build/
+
+# ESP32 / Arduino build artifacts
+*.ino.hex
+*.elf
+*.bin
+esp32_display/.pio/
+esp32_display/.vscode/
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+*.log
+
+# Pico W — do not commit credentials
+pico_w_firmware/secrets.py

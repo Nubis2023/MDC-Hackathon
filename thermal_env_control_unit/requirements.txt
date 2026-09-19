@@ -1,0 +1,38 @@
+# requirements.txt
+# Python dependencies for the project (desktop-side helpers, not for Pico W)
+
+# ── MicroPython runtime (Pico W — flash this onto the device) ────────────────
+# Download from: https://micropython.org/download/RP2040BOARD/
+# Use the .uf2 for Raspberry Pi Pico W
+#
+# Required MicroPython modules (pre-installed with recent builds):
+#   - machine    (GPIO, ADC, I2C, UART, Pin)
+#   - network    (WiFi)
+#   - urequests  (HTTP client)
+#   - ujson      (JSON serialization)
+#   - dht        (DHT11 driver)
+# No pip install needed on the Pico W.
+
+# ── ESP32-S3 Display (Arduino) ───────────────────────────────────────────────
+# Install via Arduino Library Manager or PlatformIO lib_manager:
+#
+#   TFT_eSPI          — Hardware SPI driver for ILI9488
+#   XPT2046_Touchscreen — Touch panel driver
+#   JC_Button         — Debounced button handling
+#
+# PlatformIO: add to platformio.ini:
+#   lib_deps =
+#     bodmer/TFT_eSPI@^2.5.43
+#     paulStoffregen/XPT2046_Touchscreen@^1.4
+#     digilect/JC_Button@^2.1.0
+
+# ── Desktop-side utilities (optional) ────────────────────────────────────────
+# These run on your development machine for flashing, monitoring, etc.
+# pip install -r requirements.txt
+
+# Thonny IDE (recommended): https://thonny.org/
+# rshell or ampy for file transfer: pip install adafruit-ampy
+ampy==1.1.0
+
+# Optional: mpremote for direct Pico REPL access
+# mpremote==0.0.0b3
